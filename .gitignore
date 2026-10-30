@@ -1,0 +1,48 @@
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials/
+secrets/
+
+# Python environments, caches, and build output
+.venv/
+.venv*/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.pre-commit-cache/
+.mypy_cache/
+.tox/
+build/
+dist/
+*.egg-info/
+
+# Logs and local runtime state
+*.log
+logs/
+*.sqlite
+*.sqlite3
+
+# Downloaded and generated datasets / model artifacts
+data/**
+!data/.gitkeep
+datasets/
+input/
+downloads/
+raw/
+artifacts/
+models/
+
+# Editor and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

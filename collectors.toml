@@ -1,0 +1,27 @@
+[collector]
+output_dir = "data/collectors"
+state_dir = "data/collector_state"
+
+[mt5]
+enabled = true
+collect_ticks = true
+symbols = ["EURUSD"]
+timeframes = ["M5", "H1"]
+poll_seconds = 60
+bars_per_poll = 10
+max_retries = 2
+retry_backoff_seconds = 1
+# Optional path to a particular terminal executable.
+terminal_path = "C:/Program Files/MetaTrader 5/terminal64.exe"
+
+[calendar]
+# Set enabled=true only when you want to collect/cache calendar snapshots.
+enabled = false
+# The Forex Factory provider requires written permission for retrieval/cache.
+authorized_for_local_cache = false
+poll_seconds = 900
+max_age_hours = 6
+min_fetch_interval_hours = 6
+timeout_seconds = 10
+max_retries = 2
+retry_backoff_seconds = 1
