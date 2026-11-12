@@ -22,7 +22,9 @@ from johanna.adapters.economic_calendar import (
     Freshness,
     WeeklySnapshotCache,
 )
-from johanna.adapters.mt5 import MetaTrader5Adapter
+from johanna.adapters.mt5 import MetaTrader5Adapter, ServerClock
+from johanna.fsutil import replace_with_retry
+from johanna.instance_lock import FileLock, LockBusyError
 from johanna.market_data import ParquetBarStore
 from johanna.ticks import TickParquetStore, validate_tick
 from johanna.time import strictly_increasing_utc, to_utc
@@ -33,6 +35,32 @@ SUPPORTED_TIMEFRAMES = ("M1", "M5", "M15", "H1")
 
 class CollectorConfigError(ValueError):
     """Invalid collector configuration with a setting-specific explanation."""
+
+
+class CollectorBusyError(LockBusyError):
+    """Another collector (CLI or backend worker) is already collecting this source."""
+
+
+class SourceLock(FileLock):
+    """One active collector per source, across processes and threads.
+
+    The lock file is ``<state_dir>/<source>.lock``: the same state directory that holds the
+    source's progress file, so every collector writing that progress file and its output
+    store (the standalone CLI and the backend monitoring worker) contends for the same
+    lock, while ``mt5`` and ``calendar`` never block each other.
+    """
+
+    busy_error = CollectorBusyError
+
+    def __init__(self, state_dir: str | Path, source: str) -> None:
+        super().__init__(Path(state_dir) / f"{source}.lock", purpose=f"collector:{source}")
+        self.source = source
+
+    def _busy_message(self) -> str:
+        return (
+            f"The {self.source} collector is already running (CLI or Johanna backend "
+            f"monitoring); lock {self.path}"
+        )
 
 
 @dataclass(frozen=True)
@@ -46,6 +74,13 @@ class MT5Settings:
     max_retries: int = 2
     retry_backoff_seconds: float = 1.0
     terminal_path: str | None = None
+    # MT5 epochs are trade-server wall clock, not UTC (see ServerClock).
+    server_time_zone: str = "UTC"
+    server_time_shift_hours: int = 0
+
+    @property
+    def server_clock(self) -> ServerClock:
+        return ServerClock(self.server_time_zone, self.server_time_shift_hours)
 
 
 @dataclass(frozen=True)
@@ -98,6 +133,8 @@ class CollectorConfig:
                 "max_retries",
                 "retry_backoff_seconds",
                 "terminal_path",
+                "server_time_zone",
+                "server_time_shift_hours",
             },
             "mt5",
         )
@@ -127,7 +164,18 @@ class CollectorConfig:
                 mt5_data.get("retry_backoff_seconds", 1), "mt5.retry_backoff_seconds", 0, 60
             ),
             terminal_path=_optional_string(mt5_data.get("terminal_path"), "mt5.terminal_path"),
+            server_time_zone=_optional_string(
+                mt5_data.get("server_time_zone", "UTC"), "mt5.server_time_zone"
+            )
+            or "UTC",
+            server_time_shift_hours=_int_value(
+                mt5_data.get("server_time_shift_hours", 0), "mt5.server_time_shift_hours", -12, 14
+            ),
         )
+        try:
+            mt5.server_clock  # validates the IANA zone and shift
+        except (ValueError, KeyError) as exc:
+            raise CollectorConfigError(f"Invalid MT5 server clock: {exc}") from exc
 
         calendar_data = _table(raw, "calendar")
         _reject_unknown(
@@ -248,7 +296,7 @@ def _atomic_state(path: Path, document: Mapping[str, Any]) -> None:
     temp = path.with_name(path.name + ".tmp")
     try:
         temp.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        temp.replace(path)
+        replace_with_retry(temp, path)
     finally:
         temp.unlink(missing_ok=True)
 
@@ -604,6 +652,7 @@ class CalendarCollector:
         self.state["last_attempt_utc"] = _iso(now)
         monday = now.date() - timedelta(days=now.weekday())
         error: Exception | None = None
+        succeeded = False
         for attempt in range(self.max_retries + 1):
             try:
                 snapshot = self.calendar.get_week(monday)
@@ -621,22 +670,23 @@ class CalendarCollector:
                     len(snapshot.events),
                     snapshot.freshness.value,
                 )
+                succeeded = True
                 break
             except Exception as exc:
                 error = exc
                 cause = exc
                 while cause.__cause__ is not None:
                     cause = cause.__cause__
-                if (
-                    attempt < self.max_retries
-                    and "HTTP 403" not in str(cause)
-                    and "HTTP 429" not in str(cause)
-                ):
-                    delay = min(self.retry_backoff_seconds * (2**attempt), 60)
-                    LOGGER.warning("Calendar poll failed; retrying in %.1fs", delay)
-                    if delay:
-                        self.sleep(delay)
-        else:
+                # A provider denial (403) or rate limit (429) is final for this poll: never
+                # re-request. Previously the loop skipped only the backoff and retried at once.
+                denied = "HTTP 403" in str(cause) or "HTTP 429" in str(cause)
+                if denied or attempt >= self.max_retries:
+                    break
+                delay = min(self.retry_backoff_seconds * (2**attempt), 60)
+                LOGGER.warning("Calendar poll failed; retrying in %.1fs", delay)
+                if delay:
+                    self.sleep(delay)
+        if not succeeded:
             self.state.update(status="error", last_error=str(error))
             LOGGER.error("Calendar poll failed: %s", error)
         self.state["updated_at_utc"] = _iso(self.clock())
@@ -766,13 +816,32 @@ def run_configured_source(
     dry_run: bool = False,
     stop_event: threading.Event | None = None,
 ) -> None:
+    if source not in {"mt5", "calendar"}:
+        raise CollectorConfigError("source must be 'mt5' or 'calendar'")
+    # Held for the whole run (one cycle or continuous) and released on any exit path.
+    with SourceLock(config.state_dir, source):
+        _run_source(config, source, once=once, dry_run=dry_run, stop_event=stop_event)
+
+
+def _run_source(
+    config: CollectorConfig,
+    source: str,
+    *,
+    once: bool,
+    dry_run: bool,
+    stop_event: threading.Event | None,
+) -> None:
     stop = stop_event or threading.Event()
     if source == "mt5":
         settings = config.mt5
         if not settings.enabled:
             raise CollectorConfigError("MT5 collector is disabled in configuration")
+        if not dry_run:
+            _refuse_legacy_mt5_data(config)
         adapter: Any = (
-            _DryRunMT5(_utc_now) if dry_run else MetaTrader5Adapter(settings.terminal_path)
+            _DryRunMT5(_utc_now)
+            if dry_run
+            else MetaTrader5Adapter(settings.terminal_path, server_clock=settings.server_clock)
         )
         collector = MT5Collector(
             adapter,
@@ -822,6 +891,43 @@ def run_configured_source(
     raise CollectorConfigError("source must be 'mt5' or 'calendar'")
 
 
+def _refuse_legacy_mt5_data(config: CollectorConfig) -> None:
+    """Never mix UTC-correct bars into a store holding uncorrected server-time bars.
+
+    Bars written before server-clock conversion existed carry ``source_timezone == "UTC"``
+    while their timestamps are server wall clock. When a non-UTC server clock is configured,
+    collecting into such a store (or replaying such pending bars) would silently mix two
+    time bases, so collection is refused until the data is migrated or a new output
+    directory is used.
+    """
+    clock = config.mt5.server_clock
+    if clock.is_utc:
+        return
+    legacy = 0
+    store = ParquetBarStore(config.output_dir / "mt5")
+    if store.clean_root.exists():
+        for row in store.read().to_pylist():
+            if row["source"] == "MT5" and row["source_timezone"] == "UTC":
+                legacy += 1
+    state_path = config.state_dir / "mt5.json"
+    if state_path.is_file():
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            state = {}
+        for target in (state.get("targets") or {}).values():
+            for bar in (target or {}).get("pending_bars") or []:
+                if bar.get("source_timezone") == "UTC":
+                    legacy += 1
+    if legacy:
+        raise CollectorConfigError(
+            f"{legacy} MT5 bar(s) under {config.output_dir / 'mt5'} or {state_path} were "
+            f"stored before server-time conversion (server clock is now {clock.describe()}). "
+            "Run `python -m johanna.mt5_timestamp_migration` (see docs/mt5-timestamps.md) "
+            "or point collector.output_dir/state_dir at new directories."
+        )
+
+
 def _stop_handler(stop: threading.Event) -> Callable[[int, Any], None]:
     def handle_signal(signum: int, frame: Any) -> None:
         del signum, frame
@@ -857,6 +963,9 @@ def main(argv: list[str] | None = None) -> int:
             signal.signal(signal.SIGINT, previous_int)
             if previous_term is not None:
                 signal.signal(signal.SIGTERM, previous_term)
+    except CollectorBusyError as exc:
+        LOGGER.error("Collector not started: %s", exc)
+        return 3
     except (CollectorConfigError, OSError, ValueError, RuntimeError) as exc:
         LOGGER.error("Collector could not start: %s", exc)
         return 2

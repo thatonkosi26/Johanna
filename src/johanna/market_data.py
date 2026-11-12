@@ -27,6 +27,7 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from johanna.fsutil import replace_with_retry
 from johanna.time import (
     BarTimestampConvention,
     get_timezone,
@@ -192,7 +193,7 @@ def _atomic_json(path: Path, document: Mapping[str, Any]) -> None:
             stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
-        temp_path.replace(path)
+        replace_with_retry(temp_path, path)
     finally:
         if temp_path is not None:
             temp_path.unlink(missing_ok=True)
@@ -208,7 +209,7 @@ def _atomic_parquet(path: Path, rows: list[dict[str, Any]]) -> None:
         pq.write_table(table, temp_path, compression="zstd")
         with temp_path.open("rb+") as stream:
             os.fsync(stream.fileno())
-        temp_path.replace(path)
+        replace_with_retry(temp_path, path)
     finally:
         if temp_path is not None:
             temp_path.unlink(missing_ok=True)

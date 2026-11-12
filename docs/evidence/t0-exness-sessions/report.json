@@ -1,0 +1,4648 @@
+{
+  "generated_at_utc": "2026-11-12T09:29:48.524402+00:00",
+  "terminal_path": "C:\\Program Files\\MetaTrader 5\\terminal64.exe",
+  "environment": {
+    "company": "Exness Technologies Ltd",
+    "server": "Exness-MT5Real21",
+    "account_type": "real",
+    "terminal_connected": true,
+    "terminal_build": 6316,
+    "terminal_maxbars": 100000,
+    "package_version": "5.0.6231"
+  },
+  "symbols": {
+    "EURUSD": "EURUSDc",
+    "GBPUSD": "GBPUSDc",
+    "USDJPY": "USDJPYc",
+    "USDCHF": "USDCHFc",
+    "AUDUSD": "AUDUSDc",
+    "USDCAD": "USDCADc",
+    "NZDUSD": "NZDUSDc"
+  },
+  "symbols_skipped": {},
+  "time_base": {
+    "EURUSD": -1.4,
+    "GBPUSD": -0.5,
+    "USDJPY": -1.0,
+    "USDCHF": -1.7,
+    "AUDUSD": -7.0,
+    "USDCAD": -0.6,
+    "NZDUSD": -4.2
+  },
+  "history_depth": {
+    "EURUSD": {
+      "D1": {
+        "requested": 5000,
+        "returned": 3963,
+        "oldest_utc": "2014-01-14T00:00:00Z",
+        "newest_utc": "2026-11-12T00:00:00Z",
+        "limited_by_request": false
+      },
+      "H4": {
+        "requested": 10000,
+        "returned": 10000,
+        "oldest_utc": "2020-09-08T00:00:00Z",
+        "newest_utc": "2026-11-12T08:00:00Z",
+        "limited_by_request": true
+      },
+      "H1": {
+        "requested": 30000,
+        "returned": 30000,
+        "oldest_utc": "2022-01-19T09:00:00Z",
+        "newest_utc": "2026-11-12T09:00:00Z",
+        "limited_by_request": true
+      },
+      "M1 (last 28 days)": {
+        "returned": 28655,
+        "oldest_utc": "2026-10-15T09:30:00Z"
+      },
+      "M5 (last 80000 bars)": {
+        "returned": 80000,
+        "oldest_utc": "2025-10-16T05:20:00Z"
+      }
+    },
+    "GBPUSD": {
+      "D1": {
+        "requested": 5000,
+        "returned": 824,
+        "oldest_utc": "2024-03-26T00:00:00Z",
+        "newest_utc": "2026-11-12T00:00:00Z",
+        "limited_by_request": false
+      },
+      "H4": {
+        "requested": 10000,
+        "returned": 4238,
+        "oldest_utc": "2024-03-26T12:00:00Z",
+        "newest_utc": "2026-11-12T08:00:00Z",
+        "limited_by_request": false
+      },
+      "H1": {
+        "requested": 30000,
+        "returned": 16382,
+        "oldest_utc": "2024-03-26T14:00:00Z",
+        "newest_utc": "2026-11-12T09:00:00Z",
+        "limited_by_request": false
+      },
+      "M1 (last 28 days)": {
+        "returned": 28643,
+        "oldest_utc": "2026-10-15T09:30:00Z"
+      }
+    },
+    "USDJPY": {
+      "D1": {
+        "requested": 5000,
+        "returned": 824,
+        "oldest_utc": "2024-03-26T00:00:00Z",
+        "newest_utc": "2026-11-12T00:00:00Z",
+        "limited_by_request": false
+      },
+      "H4": {
+        "requested": 10000,
+        "returned": 4238,
+        "oldest_utc": "2024-03-26T12:00:00Z",
+        "newest_utc": "2026-11-12T08:00:00Z",
+        "limited_by_request": false
+      },
+      "H1": {
+        "requested": 30000,
+        "returned": 16382,
+        "oldest_utc": "2024-03-26T14:00:00Z",
+        "newest_utc": "2026-11-12T09:00:00Z",
+        "limited_by_request": false
+      },
+      "M1 (last 28 days)": {
+        "returned": 28634,
+        "oldest_utc": "2026-10-15T09:30:00Z"
+      },
+      "M5 (last 80000 bars)": {
+        "returned": 80000,
+        "oldest_utc": "2025-10-15T23:35:00Z"
+      }
+    },
+    "USDCHF": {
+      "D1": {
+        "requested": 5000,
+        "returned": 824,
+        "oldest_utc": "2024-03-26T00:00:00Z",
+        "newest_utc": "2026-11-12T00:00:00Z",
+        "limited_by_request": false
+      },
+      "H4": {
+        "requested": 10000,
+        "returned": 4238,
+        "oldest_utc": "2024-03-26T12:00:00Z",
+        "newest_utc": "2026-11-12T08:00:00Z",
+        "limited_by_request": false
+      },
+      "H1": {
+        "requested": 30000,
+        "returned": 16382,
+        "oldest_utc": "2024-03-26T14:00:00Z",
+        "newest_utc": "2026-11-12T09:00:00Z",
+        "limited_by_request": false
+      },
+      "M1 (last 28 days)": {
+        "returned": 28656,
+        "oldest_utc": "2026-10-15T09:30:00Z"
+      }
+    },
+    "AUDUSD": {
+      "D1": {
+        "requested": 5000,
+        "returned": 824,
+        "oldest_utc": "2024-03-26T00:00:00Z",
+        "newest_utc": "2026-11-12T00:00:00Z",
+        "limited_by_request": false
+      },
+      "H4": {
+        "requested": 10000,
+        "returned": 4238,
+        "oldest_utc": "2024-03-26T12:00:00Z",
+        "newest_utc": "2026-11-12T08:00:00Z",
+        "limited_by_request": false
+      },
+      "H1": {
+        "requested": 30000,
+        "returned": 16382,
+        "oldest_utc": "2024-03-26T14:00:00Z",
+        "newest_utc": "2026-11-12T09:00:00Z",
+        "limited_by_request": false
+      },
+      "M1 (last 28 days)": {
+        "returned": 28679,
+        "oldest_utc": "2026-10-15T09:30:00Z"
+      },
+      "M5 (last 80000 bars)": {
+        "returned": 80000,
+        "oldest_utc": "2025-10-16T05:25:00Z"
+      }
+    },
+    "USDCAD": {
+      "D1": {
+        "requested": 5000,
+        "returned": 824,
+        "oldest_utc": "2024-03-26T00:00:00Z",
+        "newest_utc": "2026-11-12T00:00:00Z",
+        "limited_by_request": false
+      },
+      "H4": {
+        "requested": 10000,
+        "returned": 4238,
+        "oldest_utc": "2024-03-26T12:00:00Z",
+        "newest_utc": "2026-11-12T08:00:00Z",
+        "limited_by_request": false
+      },
+      "H1": {
+        "requested": 30000,
+        "returned": 16382,
+        "oldest_utc": "2024-03-26T14:00:00Z",
+        "newest_utc": "2026-11-12T09:00:00Z",
+        "limited_by_request": false
+      },
+      "M1 (last 28 days)": {
+        "returned": 28691,
+        "oldest_utc": "2026-10-15T09:30:00Z"
+      }
+    },
+    "NZDUSD": {
+      "D1": {
+        "requested": 5000,
+        "returned": 824,
+        "oldest_utc": "2024-03-26T00:00:00Z",
+        "newest_utc": "2026-11-12T00:00:00Z",
+        "limited_by_request": false
+      },
+      "H4": {
+        "requested": 10000,
+        "returned": 4238,
+        "oldest_utc": "2024-03-26T12:00:00Z",
+        "newest_utc": "2026-11-12T08:00:00Z",
+        "limited_by_request": false
+      },
+      "H1": {
+        "requested": 30000,
+        "returned": 16382,
+        "oldest_utc": "2024-03-26T14:00:00Z",
+        "newest_utc": "2026-11-12T09:00:00Z",
+        "limited_by_request": false
+      },
+      "M1 (last 28 days)": {
+        "returned": 28673,
+        "oldest_utc": "2026-10-15T09:30:00Z"
+      }
+    }
+  },
+  "empty_history_results": [],
+  "collection_window_utc": [
+    "2026-11-12T09:29:48.524402+00:00",
+    "2026-11-12T09:30:23.323406+00:00"
+  ],
+  "mt5_calls": {
+    "initialize": 1,
+    "account_info": 1,
+    "terminal_info": 1,
+    "symbol_info": 14,
+    "symbols_get": 7,
+    "symbol_info_tick": 7,
+    "copy_rates_from_pos": 24,
+    "copy_rates_range": 7,
+    "shutdown": 1
+  },
+  "slowest_calls_s": [
+    [
+      "copy_rates_from_pos",
+      "('AUDUSDc', 5)",
+      0.36
+    ],
+    [
+      "copy_rates_from_pos",
+      "('EURUSDc', 5)",
+      0.352
+    ],
+    [
+      "copy_rates_from_pos",
+      "('USDJPYc', 5)",
+      0.326
+    ],
+    [
+      "copy_rates_range",
+      "('EURUSDc', 1)",
+      0.015
+    ],
+    [
+      "copy_rates_from_pos",
+      "('GBPUSDc', 16385)",
+      0.008
+    ],
+    [
+      "copy_rates_from_pos",
+      "('EURUSDc', 16385)",
+      0.007
+    ],
+    [
+      "copy_rates_from_pos",
+      "('USDCHFc', 16385)",
+      0.006
+    ],
+    [
+      "copy_rates_range",
+      "('USDJPYc', 1)",
+      0.005
+    ],
+    [
+      "copy_rates_from_pos",
+      "('AUDUSDc', 16385)",
+      0.005
+    ],
+    [
+      "copy_rates_range",
+      "('NZDUSDc', 1)",
+      0.005
+    ]
+  ],
+  "weekly_sessions": {
+    "EURUSD": {
+      "M1": {
+        "weekends_observed": 4,
+        "first": "2026-10-16T20:59:00Z",
+        "last": "2026-11-06T21:59:00Z",
+        "close_reopen_utc_by_regime": {
+          "US summer time (EDT)": [
+            {
+              "close_utc": "Fri 20:59",
+              "reopen_utc": "Sun 21:05",
+              "weeks": 2
+            },
+            {
+              "close_utc": "Fri 20:59",
+              "reopen_utc": "Sun 22:09",
+              "weeks": 1
+            }
+          ],
+          "US winter time (EST)": [
+            {
+              "close_utc": "Fri 21:59",
+              "reopen_utc": "Sun 22:05",
+              "weeks": 1
+            }
+          ]
+        },
+        "unusual_weekends": []
+      },
+      "M5": {
+        "weekends_observed": 58,
+        "first": "2025-10-17T21:00:00Z",
+        "last": "2026-11-06T22:00:00Z",
+        "close_reopen_utc_by_regime": {
+          "US summer time (EDT)": [
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Sun 21:05",
+              "weeks": 35
+            },
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Sun 22:05",
+              "weeks": 2
+            }
+          ],
+          "US winter time (EST)": [
+            {
+              "close_utc": "Fri 22:00",
+              "reopen_utc": "Sun 22:05",
+              "weeks": 17
+            },
+            {
+              "close_utc": "Wed 22:00",
+              "reopen_utc": "Thu 22:05",
+              "weeks": 2
+            },
+            {
+              "close_utc": "Fri 22:00",
+              "reopen_utc": "Sun 22:10",
+              "weeks": 1
+            },
+            {
+              "close_utc": "Fri 22:00",
+              "reopen_utc": "Sun 21:25",
+              "weeks": 1
+            }
+          ]
+        },
+        "unusual_weekends": [
+          {
+            "last_bar_close_utc": "2025-12-24T22:00:00Z",
+            "reopen_utc": "2025-12-25T22:05:00Z",
+            "close": "Wed 22:00",
+            "reopen": "Thu 22:05",
+            "close_new_york": "Wed 17:00",
+            "reopen_new_york": "Thu 17:05",
+            "us_dst_at_close": false,
+            "gap_hours": 24.08
+          },
+          {
+            "last_bar_close_utc": "2025-12-31T22:00:00Z",
+            "reopen_utc": "2026-01-01T22:05:00Z",
+            "close": "Wed 22:00",
+            "reopen": "Thu 22:05",
+            "close_new_york": "Wed 17:00",
+            "reopen_new_york": "Thu 17:05",
+            "us_dst_at_close": false,
+            "gap_hours": 24.08
+          }
+        ]
+      },
+      "H1": {
+        "weekends_observed": 255,
+        "first": "2022-01-21T22:00:00Z",
+        "last": "2026-11-06T22:00:00Z",
+        "close_reopen_utc_by_regime": {
+          "US winter time (EST)": [
+            {
+              "close_utc": "Fri 22:00",
+              "reopen_utc": "Sun 22:00",
+              "weeks": 74
+            },
+            {
+              "close_utc": "Fri 22:00",
+              "reopen_utc": "Sun 21:00",
+              "weeks": 5
+            },
+            {
+              "close_utc": "Fri 22:00",
+              "reopen_utc": "Mon 22:00",
+              "weeks": 2
+            },
+            {
+              "close_utc": "Tue 22:00",
+              "reopen_utc": "Wed 22:00",
+              "weeks": 2
+            },
+            {
+              "close_utc": "Wed 22:00",
+              "reopen_utc": "Thu 22:00",
+              "weeks": 2
+            }
+          ],
+          "US summer time (EDT)": [
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Sun 21:00",
+              "weeks": 165
+            },
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Sun 22:00",
+              "weeks": 5
+            }
+          ]
+        },
+        "unusual_weekends": [
+          {
+            "last_bar_close_utc": "2023-12-22T22:00:00Z",
+            "reopen_utc": "2023-12-25T22:00:00Z",
+            "close": "Fri 22:00",
+            "reopen": "Mon 22:00",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Mon 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 72.0
+          },
+          {
+            "last_bar_close_utc": "2023-12-29T22:00:00Z",
+            "reopen_utc": "2024-01-01T22:00:00Z",
+            "close": "Fri 22:00",
+            "reopen": "Mon 22:00",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Mon 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 72.0
+          },
+          {
+            "last_bar_close_utc": "2024-12-24T22:00:00Z",
+            "reopen_utc": "2024-12-25T22:00:00Z",
+            "close": "Tue 22:00",
+            "reopen": "Wed 22:00",
+            "close_new_york": "Tue 17:00",
+            "reopen_new_york": "Wed 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 24.0
+          },
+          {
+            "last_bar_close_utc": "2024-12-31T22:00:00Z",
+            "reopen_utc": "2025-01-01T22:00:00Z",
+            "close": "Tue 22:00",
+            "reopen": "Wed 22:00",
+            "close_new_york": "Tue 17:00",
+            "reopen_new_york": "Wed 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 24.0
+          },
+          {
+            "last_bar_close_utc": "2025-12-24T22:00:00Z",
+            "reopen_utc": "2025-12-25T22:00:00Z",
+            "close": "Wed 22:00",
+            "reopen": "Thu 22:00",
+            "close_new_york": "Wed 17:00",
+            "reopen_new_york": "Thu 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 24.0
+          },
+          {
+            "last_bar_close_utc": "2025-12-31T22:00:00Z",
+            "reopen_utc": "2026-01-01T22:00:00Z",
+            "close": "Wed 22:00",
+            "reopen": "Thu 22:00",
+            "close_new_york": "Wed 17:00",
+            "reopen_new_york": "Thu 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 24.0
+          }
+        ]
+      }
+    },
+    "GBPUSD": {
+      "M1": {
+        "weekends_observed": 4,
+        "first": "2026-10-16T20:59:00Z",
+        "last": "2026-11-06T21:59:00Z",
+        "close_reopen_utc_by_regime": {
+          "US summer time (EDT)": [
+            {
+              "close_utc": "Fri 20:59",
+              "reopen_utc": "Sun 21:05",
+              "weeks": 2
+            },
+            {
+              "close_utc": "Fri 20:59",
+              "reopen_utc": "Sun 22:05",
+              "weeks": 1
+            }
+          ],
+          "US winter time (EST)": [
+            {
+              "close_utc": "Fri 21:59",
+              "reopen_utc": "Sun 22:05",
+              "weeks": 1
+            }
+          ]
+        },
+        "unusual_weekends": []
+      },
+      "H1": {
+        "weekends_observed": 141,
+        "first": "2024-03-29T21:00:00Z",
+        "last": "2026-11-06T22:00:00Z",
+        "close_reopen_utc_by_regime": {
+          "US summer time (EDT)": [
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Sun 21:00",
+              "weeks": 95
+            },
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Sun 22:00",
+              "weeks": 4
+            },
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Mon 00:00",
+              "weeks": 1
+            }
+          ],
+          "US winter time (EST)": [
+            {
+              "close_utc": "Fri 22:00",
+              "reopen_utc": "Sun 22:00",
+              "weeks": 35
+            },
+            {
+              "close_utc": "Tue 22:00",
+              "reopen_utc": "Wed 22:00",
+              "weeks": 2
+            },
+            {
+              "close_utc": "Fri 22:00",
+              "reopen_utc": "Sun 21:00",
+              "weeks": 2
+            },
+            {
+              "close_utc": "Wed 22:00",
+              "reopen_utc": "Thu 22:00",
+              "weeks": 2
+            }
+          ]
+        },
+        "unusual_weekends": [
+          {
+            "last_bar_close_utc": "2024-12-24T22:00:00Z",
+            "reopen_utc": "2024-12-25T22:00:00Z",
+            "close": "Tue 22:00",
+            "reopen": "Wed 22:00",
+            "close_new_york": "Tue 17:00",
+            "reopen_new_york": "Wed 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 24.0
+          },
+          {
+            "last_bar_close_utc": "2024-12-31T22:00:00Z",
+            "reopen_utc": "2025-01-01T22:00:00Z",
+            "close": "Tue 22:00",
+            "reopen": "Wed 22:00",
+            "close_new_york": "Tue 17:00",
+            "reopen_new_york": "Wed 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 24.0
+          },
+          {
+            "last_bar_close_utc": "2025-12-24T22:00:00Z",
+            "reopen_utc": "2025-12-25T22:00:00Z",
+            "close": "Wed 22:00",
+            "reopen": "Thu 22:00",
+            "close_new_york": "Wed 17:00",
+            "reopen_new_york": "Thu 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 24.0
+          },
+          {
+            "last_bar_close_utc": "2025-12-31T22:00:00Z",
+            "reopen_utc": "2026-01-01T22:00:00Z",
+            "close": "Wed 22:00",
+            "reopen": "Thu 22:00",
+            "close_new_york": "Wed 17:00",
+            "reopen_new_york": "Thu 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 24.0
+          }
+        ]
+      }
+    },
+    "USDJPY": {
+      "M1": {
+        "weekends_observed": 4,
+        "first": "2026-10-16T20:59:00Z",
+        "last": "2026-11-06T21:59:00Z",
+        "close_reopen_utc_by_regime": {
+          "US summer time (EDT)": [
+            {
+              "close_utc": "Fri 20:59",
+              "reopen_utc": "Sun 21:05",
+              "weeks": 2
+            },
+            {
+              "close_utc": "Fri 20:59",
+              "reopen_utc": "Sun 22:05",
+              "weeks": 1
+            }
+          ],
+          "US winter time (EST)": [
+            {
+              "close_utc": "Fri 21:59",
+              "reopen_utc": "Sun 22:05",
+              "weeks": 1
+            }
+          ]
+        },
+        "unusual_weekends": []
+      },
+      "M5": {
+        "weekends_observed": 58,
+        "first": "2025-10-17T21:00:00Z",
+        "last": "2026-11-06T22:00:00Z",
+        "close_reopen_utc_by_regime": {
+          "US summer time (EDT)": [
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Sun 21:05",
+              "weeks": 28
+            },
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Sun 21:10",
+              "weeks": 6
+            },
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Sun 22:05",
+              "weeks": 2
+            },
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Sun 21:15",
+              "weeks": 1
+            }
+          ],
+          "US winter time (EST)": [
+            {
+              "close_utc": "Fri 22:00",
+              "reopen_utc": "Sun 22:05",
+              "weeks": 18
+            },
+            {
+              "close_utc": "Wed 22:00",
+              "reopen_utc": "Thu 22:05",
+              "weeks": 1
+            },
+            {
+              "close_utc": "Wed 22:00",
+              "reopen_utc": "Thu 22:10",
+              "weeks": 1
+            },
+            {
+              "close_utc": "Fri 22:00",
+              "reopen_utc": "Sun 21:25",
+              "weeks": 1
+            }
+          ]
+        },
+        "unusual_weekends": [
+          {
+            "last_bar_close_utc": "2025-12-24T22:00:00Z",
+            "reopen_utc": "2025-12-25T22:05:00Z",
+            "close": "Wed 22:00",
+            "reopen": "Thu 22:05",
+            "close_new_york": "Wed 17:00",
+            "reopen_new_york": "Thu 17:05",
+            "us_dst_at_close": false,
+            "gap_hours": 24.08
+          },
+          {
+            "last_bar_close_utc": "2025-12-31T22:00:00Z",
+            "reopen_utc": "2026-01-01T22:10:00Z",
+            "close": "Wed 22:00",
+            "reopen": "Thu 22:10",
+            "close_new_york": "Wed 17:00",
+            "reopen_new_york": "Thu 17:10",
+            "us_dst_at_close": false,
+            "gap_hours": 24.17
+          }
+        ]
+      },
+      "H1": {
+        "weekends_observed": 141,
+        "first": "2024-03-29T21:00:00Z",
+        "last": "2026-11-06T22:00:00Z",
+        "close_reopen_utc_by_regime": {
+          "US summer time (EDT)": [
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Sun 21:00",
+              "weeks": 95
+            },
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Sun 22:00",
+              "weeks": 4
+            },
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Mon 00:00",
+              "weeks": 1
+            }
+          ],
+          "US winter time (EST)": [
+            {
+              "close_utc": "Fri 22:00",
+              "reopen_utc": "Sun 22:00",
+              "weeks": 35
+            },
+            {
+              "close_utc": "Tue 22:00",
+              "reopen_utc": "Wed 22:00",
+              "weeks": 2
+            },
+            {
+              "close_utc": "Fri 22:00",
+              "reopen_utc": "Sun 21:00",
+              "weeks": 2
+            },
+            {
+              "close_utc": "Wed 22:00",
+              "reopen_utc": "Thu 22:00",
+              "weeks": 2
+            }
+          ]
+        },
+        "unusual_weekends": [
+          {
+            "last_bar_close_utc": "2024-12-24T22:00:00Z",
+            "reopen_utc": "2024-12-25T22:00:00Z",
+            "close": "Tue 22:00",
+            "reopen": "Wed 22:00",
+            "close_new_york": "Tue 17:00",
+            "reopen_new_york": "Wed 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 24.0
+          },
+          {
+            "last_bar_close_utc": "2024-12-31T22:00:00Z",
+            "reopen_utc": "2025-01-01T22:00:00Z",
+            "close": "Tue 22:00",
+            "reopen": "Wed 22:00",
+            "close_new_york": "Tue 17:00",
+            "reopen_new_york": "Wed 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 24.0
+          },
+          {
+            "last_bar_close_utc": "2025-12-24T22:00:00Z",
+            "reopen_utc": "2025-12-25T22:00:00Z",
+            "close": "Wed 22:00",
+            "reopen": "Thu 22:00",
+            "close_new_york": "Wed 17:00",
+            "reopen_new_york": "Thu 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 24.0
+          },
+          {
+            "last_bar_close_utc": "2025-12-31T22:00:00Z",
+            "reopen_utc": "2026-01-01T22:00:00Z",
+            "close": "Wed 22:00",
+            "reopen": "Thu 22:00",
+            "close_new_york": "Wed 17:00",
+            "reopen_new_york": "Thu 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 24.0
+          }
+        ]
+      }
+    },
+    "USDCHF": {
+      "M1": {
+        "weekends_observed": 4,
+        "first": "2026-10-16T20:59:00Z",
+        "last": "2026-11-06T21:59:00Z",
+        "close_reopen_utc_by_regime": {
+          "US summer time (EDT)": [
+            {
+              "close_utc": "Fri 20:59",
+              "reopen_utc": "Sun 21:05",
+              "weeks": 1
+            },
+            {
+              "close_utc": "Fri 20:59",
+              "reopen_utc": "Sun 21:06",
+              "weeks": 1
+            },
+            {
+              "close_utc": "Fri 20:59",
+              "reopen_utc": "Sun 22:05",
+              "weeks": 1
+            }
+          ],
+          "US winter time (EST)": [
+            {
+              "close_utc": "Fri 21:59",
+              "reopen_utc": "Sun 22:06",
+              "weeks": 1
+            }
+          ]
+        },
+        "unusual_weekends": []
+      },
+      "H1": {
+        "weekends_observed": 141,
+        "first": "2024-03-29T21:00:00Z",
+        "last": "2026-11-06T22:00:00Z",
+        "close_reopen_utc_by_regime": {
+          "US summer time (EDT)": [
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Sun 21:00",
+              "weeks": 95
+            },
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Sun 22:00",
+              "weeks": 4
+            },
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Mon 00:00",
+              "weeks": 1
+            }
+          ],
+          "US winter time (EST)": [
+            {
+              "close_utc": "Fri 22:00",
+              "reopen_utc": "Sun 22:00",
+              "weeks": 35
+            },
+            {
+              "close_utc": "Tue 22:00",
+              "reopen_utc": "Wed 22:00",
+              "weeks": 2
+            },
+            {
+              "close_utc": "Fri 22:00",
+              "reopen_utc": "Sun 21:00",
+              "weeks": 2
+            },
+            {
+              "close_utc": "Wed 22:00",
+              "reopen_utc": "Thu 22:00",
+              "weeks": 2
+            }
+          ]
+        },
+        "unusual_weekends": [
+          {
+            "last_bar_close_utc": "2024-12-24T22:00:00Z",
+            "reopen_utc": "2024-12-25T22:00:00Z",
+            "close": "Tue 22:00",
+            "reopen": "Wed 22:00",
+            "close_new_york": "Tue 17:00",
+            "reopen_new_york": "Wed 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 24.0
+          },
+          {
+            "last_bar_close_utc": "2024-12-31T22:00:00Z",
+            "reopen_utc": "2025-01-01T22:00:00Z",
+            "close": "Tue 22:00",
+            "reopen": "Wed 22:00",
+            "close_new_york": "Tue 17:00",
+            "reopen_new_york": "Wed 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 24.0
+          },
+          {
+            "last_bar_close_utc": "2025-12-24T22:00:00Z",
+            "reopen_utc": "2025-12-25T22:00:00Z",
+            "close": "Wed 22:00",
+            "reopen": "Thu 22:00",
+            "close_new_york": "Wed 17:00",
+            "reopen_new_york": "Thu 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 24.0
+          },
+          {
+            "last_bar_close_utc": "2025-12-31T22:00:00Z",
+            "reopen_utc": "2026-01-01T22:00:00Z",
+            "close": "Wed 22:00",
+            "reopen": "Thu 22:00",
+            "close_new_york": "Wed 17:00",
+            "reopen_new_york": "Thu 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 24.0
+          }
+        ]
+      }
+    },
+    "AUDUSD": {
+      "M1": {
+        "weekends_observed": 4,
+        "first": "2026-10-16T20:58:00Z",
+        "last": "2026-11-06T21:58:00Z",
+        "close_reopen_utc_by_regime": {
+          "US summer time (EDT)": [
+            {
+              "close_utc": "Fri 20:58",
+              "reopen_utc": "Sun 21:05",
+              "weeks": 2
+            },
+            {
+              "close_utc": "Fri 20:58",
+              "reopen_utc": "Sun 22:05",
+              "weeks": 1
+            }
+          ],
+          "US winter time (EST)": [
+            {
+              "close_utc": "Fri 21:58",
+              "reopen_utc": "Sun 22:05",
+              "weeks": 1
+            }
+          ]
+        },
+        "unusual_weekends": []
+      },
+      "M5": {
+        "weekends_observed": 58,
+        "first": "2025-10-17T21:00:00Z",
+        "last": "2026-11-06T22:00:00Z",
+        "close_reopen_utc_by_regime": {
+          "US summer time (EDT)": [
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Sun 21:05",
+              "weeks": 33
+            },
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Sun 22:05",
+              "weeks": 2
+            },
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Sun 21:10",
+              "weeks": 2
+            }
+          ],
+          "US winter time (EST)": [
+            {
+              "close_utc": "Fri 22:00",
+              "reopen_utc": "Sun 22:05",
+              "weeks": 18
+            },
+            {
+              "close_utc": "Wed 22:00",
+              "reopen_utc": "Thu 22:05",
+              "weeks": 2
+            },
+            {
+              "close_utc": "Fri 22:00",
+              "reopen_utc": "Sun 21:25",
+              "weeks": 1
+            }
+          ]
+        },
+        "unusual_weekends": [
+          {
+            "last_bar_close_utc": "2025-12-24T22:00:00Z",
+            "reopen_utc": "2025-12-25T22:05:00Z",
+            "close": "Wed 22:00",
+            "reopen": "Thu 22:05",
+            "close_new_york": "Wed 17:00",
+            "reopen_new_york": "Thu 17:05",
+            "us_dst_at_close": false,
+            "gap_hours": 24.08
+          },
+          {
+            "last_bar_close_utc": "2025-12-31T22:00:00Z",
+            "reopen_utc": "2026-01-01T22:05:00Z",
+            "close": "Wed 22:00",
+            "reopen": "Thu 22:05",
+            "close_new_york": "Wed 17:00",
+            "reopen_new_york": "Thu 17:05",
+            "us_dst_at_close": false,
+            "gap_hours": 24.08
+          }
+        ]
+      },
+      "H1": {
+        "weekends_observed": 141,
+        "first": "2024-03-29T21:00:00Z",
+        "last": "2026-11-06T22:00:00Z",
+        "close_reopen_utc_by_regime": {
+          "US summer time (EDT)": [
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Sun 21:00",
+              "weeks": 95
+            },
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Sun 22:00",
+              "weeks": 4
+            },
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Mon 00:00",
+              "weeks": 1
+            }
+          ],
+          "US winter time (EST)": [
+            {
+              "close_utc": "Fri 22:00",
+              "reopen_utc": "Sun 22:00",
+              "weeks": 35
+            },
+            {
+              "close_utc": "Tue 22:00",
+              "reopen_utc": "Wed 22:00",
+              "weeks": 2
+            },
+            {
+              "close_utc": "Fri 22:00",
+              "reopen_utc": "Sun 21:00",
+              "weeks": 2
+            },
+            {
+              "close_utc": "Wed 22:00",
+              "reopen_utc": "Thu 22:00",
+              "weeks": 2
+            }
+          ]
+        },
+        "unusual_weekends": [
+          {
+            "last_bar_close_utc": "2024-12-24T22:00:00Z",
+            "reopen_utc": "2024-12-25T22:00:00Z",
+            "close": "Tue 22:00",
+            "reopen": "Wed 22:00",
+            "close_new_york": "Tue 17:00",
+            "reopen_new_york": "Wed 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 24.0
+          },
+          {
+            "last_bar_close_utc": "2024-12-31T22:00:00Z",
+            "reopen_utc": "2025-01-01T22:00:00Z",
+            "close": "Tue 22:00",
+            "reopen": "Wed 22:00",
+            "close_new_york": "Tue 17:00",
+            "reopen_new_york": "Wed 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 24.0
+          },
+          {
+            "last_bar_close_utc": "2025-12-24T22:00:00Z",
+            "reopen_utc": "2025-12-25T22:00:00Z",
+            "close": "Wed 22:00",
+            "reopen": "Thu 22:00",
+            "close_new_york": "Wed 17:00",
+            "reopen_new_york": "Thu 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 24.0
+          },
+          {
+            "last_bar_close_utc": "2025-12-31T22:00:00Z",
+            "reopen_utc": "2026-01-01T22:00:00Z",
+            "close": "Wed 22:00",
+            "reopen": "Thu 22:00",
+            "close_new_york": "Wed 17:00",
+            "reopen_new_york": "Thu 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 24.0
+          }
+        ]
+      }
+    },
+    "USDCAD": {
+      "M1": {
+        "weekends_observed": 4,
+        "first": "2026-10-16T20:59:00Z",
+        "last": "2026-11-06T21:59:00Z",
+        "close_reopen_utc_by_regime": {
+          "US summer time (EDT)": [
+            {
+              "close_utc": "Fri 20:59",
+              "reopen_utc": "Sun 21:05",
+              "weeks": 2
+            },
+            {
+              "close_utc": "Fri 20:59",
+              "reopen_utc": "Sun 22:05",
+              "weeks": 1
+            }
+          ],
+          "US winter time (EST)": [
+            {
+              "close_utc": "Fri 21:59",
+              "reopen_utc": "Sun 22:05",
+              "weeks": 1
+            }
+          ]
+        },
+        "unusual_weekends": []
+      },
+      "H1": {
+        "weekends_observed": 141,
+        "first": "2024-03-29T21:00:00Z",
+        "last": "2026-11-06T22:00:00Z",
+        "close_reopen_utc_by_regime": {
+          "US summer time (EDT)": [
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Sun 21:00",
+              "weeks": 95
+            },
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Sun 22:00",
+              "weeks": 4
+            },
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Mon 00:00",
+              "weeks": 1
+            }
+          ],
+          "US winter time (EST)": [
+            {
+              "close_utc": "Fri 22:00",
+              "reopen_utc": "Sun 22:00",
+              "weeks": 35
+            },
+            {
+              "close_utc": "Tue 22:00",
+              "reopen_utc": "Wed 22:00",
+              "weeks": 2
+            },
+            {
+              "close_utc": "Fri 22:00",
+              "reopen_utc": "Sun 21:00",
+              "weeks": 2
+            },
+            {
+              "close_utc": "Wed 22:00",
+              "reopen_utc": "Thu 22:00",
+              "weeks": 2
+            }
+          ]
+        },
+        "unusual_weekends": [
+          {
+            "last_bar_close_utc": "2024-12-24T22:00:00Z",
+            "reopen_utc": "2024-12-25T22:00:00Z",
+            "close": "Tue 22:00",
+            "reopen": "Wed 22:00",
+            "close_new_york": "Tue 17:00",
+            "reopen_new_york": "Wed 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 24.0
+          },
+          {
+            "last_bar_close_utc": "2024-12-31T22:00:00Z",
+            "reopen_utc": "2025-01-01T22:00:00Z",
+            "close": "Tue 22:00",
+            "reopen": "Wed 22:00",
+            "close_new_york": "Tue 17:00",
+            "reopen_new_york": "Wed 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 24.0
+          },
+          {
+            "last_bar_close_utc": "2025-12-24T22:00:00Z",
+            "reopen_utc": "2025-12-25T22:00:00Z",
+            "close": "Wed 22:00",
+            "reopen": "Thu 22:00",
+            "close_new_york": "Wed 17:00",
+            "reopen_new_york": "Thu 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 24.0
+          },
+          {
+            "last_bar_close_utc": "2025-12-31T22:00:00Z",
+            "reopen_utc": "2026-01-01T22:00:00Z",
+            "close": "Wed 22:00",
+            "reopen": "Thu 22:00",
+            "close_new_york": "Wed 17:00",
+            "reopen_new_york": "Thu 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 24.0
+          }
+        ]
+      }
+    },
+    "NZDUSD": {
+      "M1": {
+        "weekends_observed": 4,
+        "first": "2026-10-16T20:59:00Z",
+        "last": "2026-11-06T21:59:00Z",
+        "close_reopen_utc_by_regime": {
+          "US summer time (EDT)": [
+            {
+              "close_utc": "Fri 20:59",
+              "reopen_utc": "Sun 21:05",
+              "weeks": 2
+            },
+            {
+              "close_utc": "Fri 20:59",
+              "reopen_utc": "Sun 22:05",
+              "weeks": 1
+            }
+          ],
+          "US winter time (EST)": [
+            {
+              "close_utc": "Fri 21:59",
+              "reopen_utc": "Sun 22:05",
+              "weeks": 1
+            }
+          ]
+        },
+        "unusual_weekends": []
+      },
+      "H1": {
+        "weekends_observed": 141,
+        "first": "2024-03-29T21:00:00Z",
+        "last": "2026-11-06T22:00:00Z",
+        "close_reopen_utc_by_regime": {
+          "US summer time (EDT)": [
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Sun 21:00",
+              "weeks": 95
+            },
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Sun 22:00",
+              "weeks": 4
+            },
+            {
+              "close_utc": "Fri 21:00",
+              "reopen_utc": "Mon 00:00",
+              "weeks": 1
+            }
+          ],
+          "US winter time (EST)": [
+            {
+              "close_utc": "Fri 22:00",
+              "reopen_utc": "Sun 22:00",
+              "weeks": 35
+            },
+            {
+              "close_utc": "Tue 22:00",
+              "reopen_utc": "Wed 22:00",
+              "weeks": 2
+            },
+            {
+              "close_utc": "Fri 22:00",
+              "reopen_utc": "Sun 21:00",
+              "weeks": 2
+            },
+            {
+              "close_utc": "Wed 22:00",
+              "reopen_utc": "Thu 22:00",
+              "weeks": 2
+            }
+          ]
+        },
+        "unusual_weekends": [
+          {
+            "last_bar_close_utc": "2024-12-24T22:00:00Z",
+            "reopen_utc": "2024-12-25T22:00:00Z",
+            "close": "Tue 22:00",
+            "reopen": "Wed 22:00",
+            "close_new_york": "Tue 17:00",
+            "reopen_new_york": "Wed 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 24.0
+          },
+          {
+            "last_bar_close_utc": "2024-12-31T22:00:00Z",
+            "reopen_utc": "2025-01-01T22:00:00Z",
+            "close": "Tue 22:00",
+            "reopen": "Wed 22:00",
+            "close_new_york": "Tue 17:00",
+            "reopen_new_york": "Wed 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 24.0
+          },
+          {
+            "last_bar_close_utc": "2025-12-24T22:00:00Z",
+            "reopen_utc": "2025-12-25T22:00:00Z",
+            "close": "Wed 22:00",
+            "reopen": "Thu 22:00",
+            "close_new_york": "Wed 17:00",
+            "reopen_new_york": "Thu 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 24.0
+          },
+          {
+            "last_bar_close_utc": "2025-12-31T22:00:00Z",
+            "reopen_utc": "2026-01-01T22:00:00Z",
+            "close": "Wed 22:00",
+            "reopen": "Thu 22:00",
+            "close_new_york": "Wed 17:00",
+            "reopen_new_york": "Thu 17:00",
+            "us_dst_at_close": false,
+            "gap_hours": 24.0
+          }
+        ]
+      }
+    }
+  },
+  "dst_transition_weeks": {
+    "EURUSD": [
+      {
+        "change": "2025-10-26 EU fall back",
+        "weeks": [
+          {
+            "close_utc": "2025-10-17T21:00:00Z",
+            "reopen_utc": "2025-10-19T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2025-10-24T21:00:00Z",
+            "reopen_utc": "2025-10-26T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2025-10-31T21:00:00Z",
+            "reopen_utc": "2025-11-02T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2025-11-07T22:00:00Z",
+            "reopen_utc": "2025-11-09T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          }
+        ]
+      },
+      {
+        "change": "2025-11-02 US fall back",
+        "weeks": [
+          {
+            "close_utc": "2025-10-17T21:00:00Z",
+            "reopen_utc": "2025-10-19T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2025-10-24T21:00:00Z",
+            "reopen_utc": "2025-10-26T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2025-10-31T21:00:00Z",
+            "reopen_utc": "2025-11-02T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2025-11-07T22:00:00Z",
+            "reopen_utc": "2025-11-09T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2025-11-14T22:00:00Z",
+            "reopen_utc": "2025-11-16T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          }
+        ]
+      },
+      {
+        "change": "2026-03-08 US spring forward",
+        "weeks": [
+          {
+            "close_utc": "2026-02-20T22:00:00Z",
+            "reopen_utc": "2026-02-22T22:10:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:10"
+          },
+          {
+            "close_utc": "2026-02-27T22:00:00Z",
+            "reopen_utc": "2026-03-01T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-03-06T22:00:00Z",
+            "reopen_utc": "2026-03-08T21:25:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:25"
+          },
+          {
+            "close_utc": "2026-03-13T21:00:00Z",
+            "reopen_utc": "2026-03-15T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-03-20T21:00:00Z",
+            "reopen_utc": "2026-03-22T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          }
+        ]
+      },
+      {
+        "change": "2026-03-29 EU spring forward",
+        "weeks": [
+          {
+            "close_utc": "2026-03-13T21:00:00Z",
+            "reopen_utc": "2026-03-15T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-03-20T21:00:00Z",
+            "reopen_utc": "2026-03-22T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-03-27T21:00:00Z",
+            "reopen_utc": "2026-03-29T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-04-03T21:00:00Z",
+            "reopen_utc": "2026-04-05T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-04-10T21:00:00Z",
+            "reopen_utc": "2026-04-12T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          }
+        ]
+      },
+      {
+        "change": "2026-10-25 EU fall back",
+        "weeks": [
+          {
+            "close_utc": "2026-10-09T21:00:00Z",
+            "reopen_utc": "2026-10-11T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-10-16T21:00:00Z",
+            "reopen_utc": "2026-10-18T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-10-23T21:00:00Z",
+            "reopen_utc": "2026-10-25T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-10-30T21:00:00Z",
+            "reopen_utc": "2026-11-01T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-11-06T22:00:00Z",
+            "reopen_utc": "2026-11-08T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          }
+        ]
+      },
+      {
+        "change": "2026-11-01 US fall back",
+        "weeks": [
+          {
+            "close_utc": "2026-10-16T21:00:00Z",
+            "reopen_utc": "2026-10-18T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-10-23T21:00:00Z",
+            "reopen_utc": "2026-10-25T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-10-30T21:00:00Z",
+            "reopen_utc": "2026-11-01T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-11-06T22:00:00Z",
+            "reopen_utc": "2026-11-08T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          }
+        ]
+      }
+    ],
+    "GBPUSD": [
+      {
+        "change": "2025-03-09 US spring forward",
+        "weeks": [
+          {
+            "close_utc": "2025-02-21T22:00:00Z",
+            "reopen_utc": "2025-02-23T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-02-28T22:00:00Z",
+            "reopen_utc": "2025-03-02T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-03-07T22:00:00Z",
+            "reopen_utc": "2025-03-09T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-03-14T21:00:00Z",
+            "reopen_utc": "2025-03-16T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-03-21T21:00:00Z",
+            "reopen_utc": "2025-03-23T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      },
+      {
+        "change": "2025-03-30 EU spring forward",
+        "weeks": [
+          {
+            "close_utc": "2025-03-14T21:00:00Z",
+            "reopen_utc": "2025-03-16T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-03-21T21:00:00Z",
+            "reopen_utc": "2025-03-23T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-03-28T21:00:00Z",
+            "reopen_utc": "2025-03-30T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-04-04T21:00:00Z",
+            "reopen_utc": "2025-04-06T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-04-11T21:00:00Z",
+            "reopen_utc": "2025-04-13T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      },
+      {
+        "change": "2025-10-26 EU fall back",
+        "weeks": [
+          {
+            "close_utc": "2025-10-10T21:00:00Z",
+            "reopen_utc": "2025-10-12T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-10-17T21:00:00Z",
+            "reopen_utc": "2025-10-19T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-10-24T21:00:00Z",
+            "reopen_utc": "2025-10-26T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-10-31T21:00:00Z",
+            "reopen_utc": "2025-11-02T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-11-07T22:00:00Z",
+            "reopen_utc": "2025-11-09T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      },
+      {
+        "change": "2025-11-02 US fall back",
+        "weeks": [
+          {
+            "close_utc": "2025-10-17T21:00:00Z",
+            "reopen_utc": "2025-10-19T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-10-24T21:00:00Z",
+            "reopen_utc": "2025-10-26T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-10-31T21:00:00Z",
+            "reopen_utc": "2025-11-02T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-11-07T22:00:00Z",
+            "reopen_utc": "2025-11-09T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-11-14T22:00:00Z",
+            "reopen_utc": "2025-11-16T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      },
+      {
+        "change": "2026-03-08 US spring forward",
+        "weeks": [
+          {
+            "close_utc": "2026-02-20T22:00:00Z",
+            "reopen_utc": "2026-02-22T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-02-27T22:00:00Z",
+            "reopen_utc": "2026-03-01T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-03-06T22:00:00Z",
+            "reopen_utc": "2026-03-08T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-03-13T21:00:00Z",
+            "reopen_utc": "2026-03-15T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-03-20T21:00:00Z",
+            "reopen_utc": "2026-03-22T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      },
+      {
+        "change": "2026-03-29 EU spring forward",
+        "weeks": [
+          {
+            "close_utc": "2026-03-13T21:00:00Z",
+            "reopen_utc": "2026-03-15T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-03-20T21:00:00Z",
+            "reopen_utc": "2026-03-22T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-03-27T21:00:00Z",
+            "reopen_utc": "2026-03-29T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-04-03T21:00:00Z",
+            "reopen_utc": "2026-04-05T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-04-10T21:00:00Z",
+            "reopen_utc": "2026-04-12T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      },
+      {
+        "change": "2026-10-25 EU fall back",
+        "weeks": [
+          {
+            "close_utc": "2026-10-09T21:00:00Z",
+            "reopen_utc": "2026-10-11T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-10-16T21:00:00Z",
+            "reopen_utc": "2026-10-18T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-10-23T21:00:00Z",
+            "reopen_utc": "2026-10-25T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-10-30T21:00:00Z",
+            "reopen_utc": "2026-11-01T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-11-06T22:00:00Z",
+            "reopen_utc": "2026-11-08T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      },
+      {
+        "change": "2026-11-01 US fall back",
+        "weeks": [
+          {
+            "close_utc": "2026-10-16T21:00:00Z",
+            "reopen_utc": "2026-10-18T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-10-23T21:00:00Z",
+            "reopen_utc": "2026-10-25T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-10-30T21:00:00Z",
+            "reopen_utc": "2026-11-01T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-11-06T22:00:00Z",
+            "reopen_utc": "2026-11-08T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      }
+    ],
+    "USDJPY": [
+      {
+        "change": "2025-10-26 EU fall back",
+        "weeks": [
+          {
+            "close_utc": "2025-10-17T21:00:00Z",
+            "reopen_utc": "2025-10-19T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2025-10-24T21:00:00Z",
+            "reopen_utc": "2025-10-26T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2025-10-31T21:00:00Z",
+            "reopen_utc": "2025-11-02T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2025-11-07T22:00:00Z",
+            "reopen_utc": "2025-11-09T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          }
+        ]
+      },
+      {
+        "change": "2025-11-02 US fall back",
+        "weeks": [
+          {
+            "close_utc": "2025-10-17T21:00:00Z",
+            "reopen_utc": "2025-10-19T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2025-10-24T21:00:00Z",
+            "reopen_utc": "2025-10-26T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2025-10-31T21:00:00Z",
+            "reopen_utc": "2025-11-02T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2025-11-07T22:00:00Z",
+            "reopen_utc": "2025-11-09T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2025-11-14T22:00:00Z",
+            "reopen_utc": "2025-11-16T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          }
+        ]
+      },
+      {
+        "change": "2026-03-08 US spring forward",
+        "weeks": [
+          {
+            "close_utc": "2026-02-20T22:00:00Z",
+            "reopen_utc": "2026-02-22T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-02-27T22:00:00Z",
+            "reopen_utc": "2026-03-01T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-03-06T22:00:00Z",
+            "reopen_utc": "2026-03-08T21:25:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:25"
+          },
+          {
+            "close_utc": "2026-03-13T21:00:00Z",
+            "reopen_utc": "2026-03-15T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-03-20T21:00:00Z",
+            "reopen_utc": "2026-03-22T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          }
+        ]
+      },
+      {
+        "change": "2026-03-29 EU spring forward",
+        "weeks": [
+          {
+            "close_utc": "2026-03-13T21:00:00Z",
+            "reopen_utc": "2026-03-15T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-03-20T21:00:00Z",
+            "reopen_utc": "2026-03-22T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-03-27T21:00:00Z",
+            "reopen_utc": "2026-03-29T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-04-03T21:00:00Z",
+            "reopen_utc": "2026-04-05T21:10:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:10"
+          },
+          {
+            "close_utc": "2026-04-10T21:00:00Z",
+            "reopen_utc": "2026-04-12T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          }
+        ]
+      },
+      {
+        "change": "2026-10-25 EU fall back",
+        "weeks": [
+          {
+            "close_utc": "2026-10-09T21:00:00Z",
+            "reopen_utc": "2026-10-11T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-10-16T21:00:00Z",
+            "reopen_utc": "2026-10-18T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-10-23T21:00:00Z",
+            "reopen_utc": "2026-10-25T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-10-30T21:00:00Z",
+            "reopen_utc": "2026-11-01T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-11-06T22:00:00Z",
+            "reopen_utc": "2026-11-08T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          }
+        ]
+      },
+      {
+        "change": "2026-11-01 US fall back",
+        "weeks": [
+          {
+            "close_utc": "2026-10-16T21:00:00Z",
+            "reopen_utc": "2026-10-18T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-10-23T21:00:00Z",
+            "reopen_utc": "2026-10-25T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-10-30T21:00:00Z",
+            "reopen_utc": "2026-11-01T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-11-06T22:00:00Z",
+            "reopen_utc": "2026-11-08T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          }
+        ]
+      }
+    ],
+    "USDCHF": [
+      {
+        "change": "2025-03-09 US spring forward",
+        "weeks": [
+          {
+            "close_utc": "2025-02-21T22:00:00Z",
+            "reopen_utc": "2025-02-23T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-02-28T22:00:00Z",
+            "reopen_utc": "2025-03-02T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-03-07T22:00:00Z",
+            "reopen_utc": "2025-03-09T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-03-14T21:00:00Z",
+            "reopen_utc": "2025-03-16T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-03-21T21:00:00Z",
+            "reopen_utc": "2025-03-23T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      },
+      {
+        "change": "2025-03-30 EU spring forward",
+        "weeks": [
+          {
+            "close_utc": "2025-03-14T21:00:00Z",
+            "reopen_utc": "2025-03-16T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-03-21T21:00:00Z",
+            "reopen_utc": "2025-03-23T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-03-28T21:00:00Z",
+            "reopen_utc": "2025-03-30T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-04-04T21:00:00Z",
+            "reopen_utc": "2025-04-06T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-04-11T21:00:00Z",
+            "reopen_utc": "2025-04-13T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      },
+      {
+        "change": "2025-10-26 EU fall back",
+        "weeks": [
+          {
+            "close_utc": "2025-10-10T21:00:00Z",
+            "reopen_utc": "2025-10-12T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-10-17T21:00:00Z",
+            "reopen_utc": "2025-10-19T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-10-24T21:00:00Z",
+            "reopen_utc": "2025-10-26T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-10-31T21:00:00Z",
+            "reopen_utc": "2025-11-02T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-11-07T22:00:00Z",
+            "reopen_utc": "2025-11-09T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      },
+      {
+        "change": "2025-11-02 US fall back",
+        "weeks": [
+          {
+            "close_utc": "2025-10-17T21:00:00Z",
+            "reopen_utc": "2025-10-19T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-10-24T21:00:00Z",
+            "reopen_utc": "2025-10-26T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-10-31T21:00:00Z",
+            "reopen_utc": "2025-11-02T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-11-07T22:00:00Z",
+            "reopen_utc": "2025-11-09T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-11-14T22:00:00Z",
+            "reopen_utc": "2025-11-16T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      },
+      {
+        "change": "2026-03-08 US spring forward",
+        "weeks": [
+          {
+            "close_utc": "2026-02-20T22:00:00Z",
+            "reopen_utc": "2026-02-22T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-02-27T22:00:00Z",
+            "reopen_utc": "2026-03-01T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-03-06T22:00:00Z",
+            "reopen_utc": "2026-03-08T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-03-13T21:00:00Z",
+            "reopen_utc": "2026-03-15T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-03-20T21:00:00Z",
+            "reopen_utc": "2026-03-22T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      },
+      {
+        "change": "2026-03-29 EU spring forward",
+        "weeks": [
+          {
+            "close_utc": "2026-03-13T21:00:00Z",
+            "reopen_utc": "2026-03-15T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-03-20T21:00:00Z",
+            "reopen_utc": "2026-03-22T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-03-27T21:00:00Z",
+            "reopen_utc": "2026-03-29T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-04-03T21:00:00Z",
+            "reopen_utc": "2026-04-05T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-04-10T21:00:00Z",
+            "reopen_utc": "2026-04-12T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      },
+      {
+        "change": "2026-10-25 EU fall back",
+        "weeks": [
+          {
+            "close_utc": "2026-10-09T21:00:00Z",
+            "reopen_utc": "2026-10-11T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-10-16T21:00:00Z",
+            "reopen_utc": "2026-10-18T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-10-23T21:00:00Z",
+            "reopen_utc": "2026-10-25T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-10-30T21:00:00Z",
+            "reopen_utc": "2026-11-01T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-11-06T22:00:00Z",
+            "reopen_utc": "2026-11-08T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      },
+      {
+        "change": "2026-11-01 US fall back",
+        "weeks": [
+          {
+            "close_utc": "2026-10-16T21:00:00Z",
+            "reopen_utc": "2026-10-18T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-10-23T21:00:00Z",
+            "reopen_utc": "2026-10-25T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-10-30T21:00:00Z",
+            "reopen_utc": "2026-11-01T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-11-06T22:00:00Z",
+            "reopen_utc": "2026-11-08T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      }
+    ],
+    "AUDUSD": [
+      {
+        "change": "2025-10-26 EU fall back",
+        "weeks": [
+          {
+            "close_utc": "2025-10-17T21:00:00Z",
+            "reopen_utc": "2025-10-19T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2025-10-24T21:00:00Z",
+            "reopen_utc": "2025-10-26T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2025-10-31T21:00:00Z",
+            "reopen_utc": "2025-11-02T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2025-11-07T22:00:00Z",
+            "reopen_utc": "2025-11-09T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          }
+        ]
+      },
+      {
+        "change": "2025-11-02 US fall back",
+        "weeks": [
+          {
+            "close_utc": "2025-10-17T21:00:00Z",
+            "reopen_utc": "2025-10-19T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2025-10-24T21:00:00Z",
+            "reopen_utc": "2025-10-26T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2025-10-31T21:00:00Z",
+            "reopen_utc": "2025-11-02T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2025-11-07T22:00:00Z",
+            "reopen_utc": "2025-11-09T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2025-11-14T22:00:00Z",
+            "reopen_utc": "2025-11-16T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          }
+        ]
+      },
+      {
+        "change": "2026-03-08 US spring forward",
+        "weeks": [
+          {
+            "close_utc": "2026-02-20T22:00:00Z",
+            "reopen_utc": "2026-02-22T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-02-27T22:00:00Z",
+            "reopen_utc": "2026-03-01T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-03-06T22:00:00Z",
+            "reopen_utc": "2026-03-08T21:25:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:25"
+          },
+          {
+            "close_utc": "2026-03-13T21:00:00Z",
+            "reopen_utc": "2026-03-15T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-03-20T21:00:00Z",
+            "reopen_utc": "2026-03-22T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          }
+        ]
+      },
+      {
+        "change": "2026-03-29 EU spring forward",
+        "weeks": [
+          {
+            "close_utc": "2026-03-13T21:00:00Z",
+            "reopen_utc": "2026-03-15T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-03-20T21:00:00Z",
+            "reopen_utc": "2026-03-22T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-03-27T21:00:00Z",
+            "reopen_utc": "2026-03-29T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-04-03T21:00:00Z",
+            "reopen_utc": "2026-04-05T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-04-10T21:00:00Z",
+            "reopen_utc": "2026-04-12T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          }
+        ]
+      },
+      {
+        "change": "2026-10-25 EU fall back",
+        "weeks": [
+          {
+            "close_utc": "2026-10-09T21:00:00Z",
+            "reopen_utc": "2026-10-11T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-10-16T21:00:00Z",
+            "reopen_utc": "2026-10-18T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-10-23T21:00:00Z",
+            "reopen_utc": "2026-10-25T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-10-30T21:00:00Z",
+            "reopen_utc": "2026-11-01T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-11-06T22:00:00Z",
+            "reopen_utc": "2026-11-08T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          }
+        ]
+      },
+      {
+        "change": "2026-11-01 US fall back",
+        "weeks": [
+          {
+            "close_utc": "2026-10-16T21:00:00Z",
+            "reopen_utc": "2026-10-18T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-10-23T21:00:00Z",
+            "reopen_utc": "2026-10-25T21:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-10-30T21:00:00Z",
+            "reopen_utc": "2026-11-01T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          },
+          {
+            "close_utc": "2026-11-06T22:00:00Z",
+            "reopen_utc": "2026-11-08T22:05:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:05"
+          }
+        ]
+      }
+    ],
+    "USDCAD": [
+      {
+        "change": "2025-03-09 US spring forward",
+        "weeks": [
+          {
+            "close_utc": "2025-02-21T22:00:00Z",
+            "reopen_utc": "2025-02-23T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-02-28T22:00:00Z",
+            "reopen_utc": "2025-03-02T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-03-07T22:00:00Z",
+            "reopen_utc": "2025-03-09T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-03-14T21:00:00Z",
+            "reopen_utc": "2025-03-16T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-03-21T21:00:00Z",
+            "reopen_utc": "2025-03-23T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      },
+      {
+        "change": "2025-03-30 EU spring forward",
+        "weeks": [
+          {
+            "close_utc": "2025-03-14T21:00:00Z",
+            "reopen_utc": "2025-03-16T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-03-21T21:00:00Z",
+            "reopen_utc": "2025-03-23T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-03-28T21:00:00Z",
+            "reopen_utc": "2025-03-30T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-04-04T21:00:00Z",
+            "reopen_utc": "2025-04-06T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-04-11T21:00:00Z",
+            "reopen_utc": "2025-04-13T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      },
+      {
+        "change": "2025-10-26 EU fall back",
+        "weeks": [
+          {
+            "close_utc": "2025-10-10T21:00:00Z",
+            "reopen_utc": "2025-10-12T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-10-17T21:00:00Z",
+            "reopen_utc": "2025-10-19T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-10-24T21:00:00Z",
+            "reopen_utc": "2025-10-26T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-10-31T21:00:00Z",
+            "reopen_utc": "2025-11-02T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-11-07T22:00:00Z",
+            "reopen_utc": "2025-11-09T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      },
+      {
+        "change": "2025-11-02 US fall back",
+        "weeks": [
+          {
+            "close_utc": "2025-10-17T21:00:00Z",
+            "reopen_utc": "2025-10-19T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-10-24T21:00:00Z",
+            "reopen_utc": "2025-10-26T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-10-31T21:00:00Z",
+            "reopen_utc": "2025-11-02T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-11-07T22:00:00Z",
+            "reopen_utc": "2025-11-09T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-11-14T22:00:00Z",
+            "reopen_utc": "2025-11-16T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      },
+      {
+        "change": "2026-03-08 US spring forward",
+        "weeks": [
+          {
+            "close_utc": "2026-02-20T22:00:00Z",
+            "reopen_utc": "2026-02-22T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-02-27T22:00:00Z",
+            "reopen_utc": "2026-03-01T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-03-06T22:00:00Z",
+            "reopen_utc": "2026-03-08T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-03-13T21:00:00Z",
+            "reopen_utc": "2026-03-15T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-03-20T21:00:00Z",
+            "reopen_utc": "2026-03-22T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      },
+      {
+        "change": "2026-03-29 EU spring forward",
+        "weeks": [
+          {
+            "close_utc": "2026-03-13T21:00:00Z",
+            "reopen_utc": "2026-03-15T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-03-20T21:00:00Z",
+            "reopen_utc": "2026-03-22T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-03-27T21:00:00Z",
+            "reopen_utc": "2026-03-29T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-04-03T21:00:00Z",
+            "reopen_utc": "2026-04-05T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-04-10T21:00:00Z",
+            "reopen_utc": "2026-04-12T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      },
+      {
+        "change": "2026-10-25 EU fall back",
+        "weeks": [
+          {
+            "close_utc": "2026-10-09T21:00:00Z",
+            "reopen_utc": "2026-10-11T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-10-16T21:00:00Z",
+            "reopen_utc": "2026-10-18T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-10-23T21:00:00Z",
+            "reopen_utc": "2026-10-25T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-10-30T21:00:00Z",
+            "reopen_utc": "2026-11-01T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-11-06T22:00:00Z",
+            "reopen_utc": "2026-11-08T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      },
+      {
+        "change": "2026-11-01 US fall back",
+        "weeks": [
+          {
+            "close_utc": "2026-10-16T21:00:00Z",
+            "reopen_utc": "2026-10-18T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-10-23T21:00:00Z",
+            "reopen_utc": "2026-10-25T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-10-30T21:00:00Z",
+            "reopen_utc": "2026-11-01T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-11-06T22:00:00Z",
+            "reopen_utc": "2026-11-08T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      }
+    ],
+    "NZDUSD": [
+      {
+        "change": "2025-03-09 US spring forward",
+        "weeks": [
+          {
+            "close_utc": "2025-02-21T22:00:00Z",
+            "reopen_utc": "2025-02-23T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-02-28T22:00:00Z",
+            "reopen_utc": "2025-03-02T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-03-07T22:00:00Z",
+            "reopen_utc": "2025-03-09T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-03-14T21:00:00Z",
+            "reopen_utc": "2025-03-16T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-03-21T21:00:00Z",
+            "reopen_utc": "2025-03-23T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      },
+      {
+        "change": "2025-03-30 EU spring forward",
+        "weeks": [
+          {
+            "close_utc": "2025-03-14T21:00:00Z",
+            "reopen_utc": "2025-03-16T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-03-21T21:00:00Z",
+            "reopen_utc": "2025-03-23T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-03-28T21:00:00Z",
+            "reopen_utc": "2025-03-30T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-04-04T21:00:00Z",
+            "reopen_utc": "2025-04-06T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-04-11T21:00:00Z",
+            "reopen_utc": "2025-04-13T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      },
+      {
+        "change": "2025-10-26 EU fall back",
+        "weeks": [
+          {
+            "close_utc": "2025-10-10T21:00:00Z",
+            "reopen_utc": "2025-10-12T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-10-17T21:00:00Z",
+            "reopen_utc": "2025-10-19T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-10-24T21:00:00Z",
+            "reopen_utc": "2025-10-26T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-10-31T21:00:00Z",
+            "reopen_utc": "2025-11-02T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-11-07T22:00:00Z",
+            "reopen_utc": "2025-11-09T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      },
+      {
+        "change": "2025-11-02 US fall back",
+        "weeks": [
+          {
+            "close_utc": "2025-10-17T21:00:00Z",
+            "reopen_utc": "2025-10-19T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-10-24T21:00:00Z",
+            "reopen_utc": "2025-10-26T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-10-31T21:00:00Z",
+            "reopen_utc": "2025-11-02T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-11-07T22:00:00Z",
+            "reopen_utc": "2025-11-09T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2025-11-14T22:00:00Z",
+            "reopen_utc": "2025-11-16T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      },
+      {
+        "change": "2026-03-08 US spring forward",
+        "weeks": [
+          {
+            "close_utc": "2026-02-20T22:00:00Z",
+            "reopen_utc": "2026-02-22T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-02-27T22:00:00Z",
+            "reopen_utc": "2026-03-01T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-03-06T22:00:00Z",
+            "reopen_utc": "2026-03-08T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-03-13T21:00:00Z",
+            "reopen_utc": "2026-03-15T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-03-20T21:00:00Z",
+            "reopen_utc": "2026-03-22T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      },
+      {
+        "change": "2026-03-29 EU spring forward",
+        "weeks": [
+          {
+            "close_utc": "2026-03-13T21:00:00Z",
+            "reopen_utc": "2026-03-15T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-03-20T21:00:00Z",
+            "reopen_utc": "2026-03-22T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-03-27T21:00:00Z",
+            "reopen_utc": "2026-03-29T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-04-03T21:00:00Z",
+            "reopen_utc": "2026-04-05T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-04-10T21:00:00Z",
+            "reopen_utc": "2026-04-12T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      },
+      {
+        "change": "2026-10-25 EU fall back",
+        "weeks": [
+          {
+            "close_utc": "2026-10-09T21:00:00Z",
+            "reopen_utc": "2026-10-11T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-10-16T21:00:00Z",
+            "reopen_utc": "2026-10-18T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-10-23T21:00:00Z",
+            "reopen_utc": "2026-10-25T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-10-30T21:00:00Z",
+            "reopen_utc": "2026-11-01T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-11-06T22:00:00Z",
+            "reopen_utc": "2026-11-08T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      },
+      {
+        "change": "2026-11-01 US fall back",
+        "weeks": [
+          {
+            "close_utc": "2026-10-16T21:00:00Z",
+            "reopen_utc": "2026-10-18T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-10-23T21:00:00Z",
+            "reopen_utc": "2026-10-25T21:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-10-30T21:00:00Z",
+            "reopen_utc": "2026-11-01T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          },
+          {
+            "close_utc": "2026-11-06T22:00:00Z",
+            "reopen_utc": "2026-11-08T22:00:00Z",
+            "close_new_york": "Fri 17:00",
+            "reopen_new_york": "Sun 17:00"
+          }
+        ]
+      }
+    ]
+  },
+  "recurring_intraday_gaps": {
+    "EURUSD": {
+      "M1 (last 28 days)": {
+        "recurring": [],
+        "occasional_top": [
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:00",
+            "minutes": 5,
+            "occurrences": 3,
+            "first": "2026-10-20",
+            "last": "2026-10-29"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:02",
+            "minutes": 3,
+            "occurrences": 2,
+            "first": "2026-11-04",
+            "last": "2026-11-05"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:00",
+            "minutes": 1,
+            "occurrences": 2,
+            "first": "2026-11-05",
+            "last": "2026-11-10"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:00",
+            "minutes": 1,
+            "occurrences": 1,
+            "first": "2026-10-15",
+            "last": "2026-10-15"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:00",
+            "minutes": 2,
+            "occurrences": 1,
+            "first": "2026-10-19",
+            "last": "2026-10-19"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:03",
+            "minutes": 1,
+            "occurrences": 1,
+            "first": "2026-10-19",
+            "last": "2026-10-19"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:08",
+            "minutes": 1,
+            "occurrences": 1,
+            "first": "2026-10-29",
+            "last": "2026-10-29"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:13",
+            "minutes": 2,
+            "occurrences": 1,
+            "first": "2026-10-29",
+            "last": "2026-10-29"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:17",
+            "minutes": 15,
+            "occurrences": 1,
+            "first": "2026-10-29",
+            "last": "2026-10-29"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:00",
+            "minutes": 2,
+            "occurrences": 1,
+            "first": "2026-11-03",
+            "last": "2026-11-03"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:00",
+            "minutes": 5,
+            "occurrences": 1,
+            "first": "2026-11-09",
+            "last": "2026-11-09"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:02",
+            "minutes": 1,
+            "occurrences": 1,
+            "first": "2026-11-10",
+            "last": "2026-11-10"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:04",
+            "minutes": 1,
+            "occurrences": 1,
+            "first": "2026-11-10",
+            "last": "2026-11-10"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:00",
+            "minutes": 3,
+            "occurrences": 1,
+            "first": "2026-11-11",
+            "last": "2026-11-11"
+          }
+        ],
+        "groups": 14
+      },
+      "M5": {
+        "recurring": [],
+        "occasional_top": [
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:00",
+            "minutes": 5,
+            "occurrences": 25,
+            "first": "2026-03-16",
+            "last": "2026-10-29"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:00",
+            "minutes": 5,
+            "occurrences": 10,
+            "first": "2025-11-11",
+            "last": "2026-11-09"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:05",
+            "minutes": 10,
+            "occurrences": 1,
+            "first": "2026-10-08",
+            "last": "2026-10-08"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:20",
+            "minutes": 10,
+            "occurrences": 1,
+            "first": "2026-10-29",
+            "last": "2026-10-29"
+          }
+        ],
+        "groups": 4
+      }
+    },
+    "GBPUSD": {
+      "M1 (last 28 days)": {
+        "recurring": [],
+        "occasional_top": [
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:00",
+            "minutes": 1,
+            "occurrences": 5,
+            "first": "2026-10-15",
+            "last": "2026-10-27"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:00",
+            "minutes": 5,
+            "occurrences": 3,
+            "first": "2026-11-03",
+            "last": "2026-11-11"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:03",
+            "minutes": 2,
+            "occurrences": 2,
+            "first": "2026-10-15",
+            "last": "2026-10-27"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:01",
+            "minutes": 4,
+            "occurrences": 2,
+            "first": "2026-10-20",
+            "last": "2026-10-28"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:00",
+            "minutes": 2,
+            "occurrences": 1,
+            "first": "2026-10-19",
+            "last": "2026-10-19"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:06",
+            "minutes": 2,
+            "occurrences": 1,
+            "first": "2026-10-20",
+            "last": "2026-10-20"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:13",
+            "minutes": 1,
+            "occurrences": 1,
+            "first": "2026-10-20",
+            "last": "2026-10-20"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:03",
+            "minutes": 1,
+            "occurrences": 1,
+            "first": "2026-10-21",
+            "last": "2026-10-21"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:05",
+            "minutes": 8,
+            "occurrences": 1,
+            "first": "2026-10-21",
+            "last": "2026-10-21"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:18",
+            "minutes": 2,
+            "occurrences": 1,
+            "first": "2026-10-21",
+            "last": "2026-10-21"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:21",
+            "minutes": 1,
+            "occurrences": 1,
+            "first": "2026-10-21",
+            "last": "2026-10-21"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:23",
+            "minutes": 1,
+            "occurrences": 1,
+            "first": "2026-10-21",
+            "last": "2026-10-21"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:02",
+            "minutes": 2,
+            "occurrences": 1,
+            "first": "2026-10-22",
+            "last": "2026-10-22"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:08",
+            "minutes": 5,
+            "occurrences": 1,
+            "first": "2026-10-22",
+            "last": "2026-10-22"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:20",
+            "minutes": 1,
+            "occurrences": 1,
+            "first": "2026-10-22",
+            "last": "2026-10-22"
+          }
+        ],
+        "groups": 22
+      }
+    },
+    "USDJPY": {
+      "M1 (last 28 days)": {
+        "recurring": [
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:00",
+            "minutes": 5,
+            "occurrences": 8,
+            "first": "2026-10-15",
+            "last": "2026-10-29"
+          }
+        ],
+        "occasional_top": [
+          {
+            "us_regime": "EST",
+            "start_utc": "22:00",
+            "minutes": 5,
+            "occurrences": 6,
+            "first": "2026-11-02",
+            "last": "2026-11-11"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:00",
+            "minutes": 7,
+            "occurrences": 1,
+            "first": "2026-10-26",
+            "last": "2026-10-26"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:15",
+            "minutes": 1,
+            "occurrences": 1,
+            "first": "2026-10-26",
+            "last": "2026-10-26"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:01",
+            "minutes": 4,
+            "occurrences": 1,
+            "first": "2026-11-04",
+            "last": "2026-11-04"
+          }
+        ],
+        "groups": 5
+      },
+      "M5": {
+        "recurring": [],
+        "occasional_top": [
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:00",
+            "minutes": 5,
+            "occurrences": 41,
+            "first": "2026-03-16",
+            "last": "2026-10-29"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:00",
+            "minutes": 5,
+            "occurrences": 36,
+            "first": "2025-11-11",
+            "last": "2026-11-11"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:00",
+            "minutes": 10,
+            "occurrences": 10,
+            "first": "2026-03-19",
+            "last": "2026-09-15"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:00",
+            "minutes": 10,
+            "occurrences": 1,
+            "first": "2026-01-29",
+            "last": "2026-01-29"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:05",
+            "minutes": 10,
+            "occurrences": 1,
+            "first": "2026-10-08",
+            "last": "2026-10-08"
+          }
+        ],
+        "groups": 5
+      }
+    },
+    "USDCHF": {
+      "M1 (last 28 days)": {
+        "recurring": [],
+        "occasional_top": [
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:00",
+            "minutes": 1,
+            "occurrences": 4,
+            "first": "2026-10-15",
+            "last": "2026-10-26"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:02",
+            "minutes": 3,
+            "occurrences": 4,
+            "first": "2026-10-15",
+            "last": "2026-10-28"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:02",
+            "minutes": 2,
+            "occurrences": 2,
+            "first": "2026-10-21",
+            "last": "2026-10-27"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:02",
+            "minutes": 3,
+            "occurrences": 2,
+            "first": "2026-11-03",
+            "last": "2026-11-10"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:00",
+            "minutes": 1,
+            "occurrences": 2,
+            "first": "2026-11-09",
+            "last": "2026-11-10"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:15",
+            "minutes": 7,
+            "occurrences": 1,
+            "first": "2026-10-18",
+            "last": "2026-10-18"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:28",
+            "minutes": 1,
+            "occurrences": 1,
+            "first": "2026-10-18",
+            "last": "2026-10-18"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:00",
+            "minutes": 5,
+            "occurrences": 1,
+            "first": "2026-10-19",
+            "last": "2026-10-19"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:01",
+            "minutes": 4,
+            "occurrences": 1,
+            "first": "2026-10-22",
+            "last": "2026-10-22"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:04",
+            "minutes": 1,
+            "occurrences": 1,
+            "first": "2026-10-29",
+            "last": "2026-10-29"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:00",
+            "minutes": 5,
+            "occurrences": 1,
+            "first": "2026-11-02",
+            "last": "2026-11-02"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:02",
+            "minutes": 2,
+            "occurrences": 1,
+            "first": "2026-11-04",
+            "last": "2026-11-04"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:08",
+            "minutes": 2,
+            "occurrences": 1,
+            "first": "2026-11-08",
+            "last": "2026-11-08"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:01",
+            "minutes": 1,
+            "occurrences": 1,
+            "first": "2026-11-11",
+            "last": "2026-11-11"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:03",
+            "minutes": 2,
+            "occurrences": 1,
+            "first": "2026-11-11",
+            "last": "2026-11-11"
+          }
+        ],
+        "groups": 15
+      }
+    },
+    "AUDUSD": {
+      "M1 (last 28 days)": {
+        "recurring": [],
+        "occasional_top": [
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:04",
+            "minutes": 1,
+            "occurrences": 3,
+            "first": "2026-10-15",
+            "last": "2026-10-26"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:00",
+            "minutes": 1,
+            "occurrences": 2,
+            "first": "2026-10-15",
+            "last": "2026-10-26"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:02",
+            "minutes": 1,
+            "occurrences": 1,
+            "first": "2026-10-15",
+            "last": "2026-10-15"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:02",
+            "minutes": 3,
+            "occurrences": 1,
+            "first": "2026-10-19",
+            "last": "2026-10-19"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:02",
+            "minutes": 5,
+            "occurrences": 1,
+            "first": "2026-10-20",
+            "last": "2026-10-20"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:00",
+            "minutes": 5,
+            "occurrences": 1,
+            "first": "2026-10-22",
+            "last": "2026-10-22"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:03",
+            "minutes": 2,
+            "occurrences": 1,
+            "first": "2026-10-27",
+            "last": "2026-10-27"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:02",
+            "minutes": 2,
+            "occurrences": 1,
+            "first": "2026-10-28",
+            "last": "2026-10-28"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:01",
+            "minutes": 4,
+            "occurrences": 1,
+            "first": "2026-10-29",
+            "last": "2026-10-29"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:04",
+            "minutes": 1,
+            "occurrences": 1,
+            "first": "2026-11-04",
+            "last": "2026-11-04"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:02",
+            "minutes": 2,
+            "occurrences": 1,
+            "first": "2026-11-05",
+            "last": "2026-11-05"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:00",
+            "minutes": 1,
+            "occurrences": 1,
+            "first": "2026-11-10",
+            "last": "2026-11-10"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:01",
+            "minutes": 1,
+            "occurrences": 1,
+            "first": "2026-11-11",
+            "last": "2026-11-11"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:03",
+            "minutes": 1,
+            "occurrences": 1,
+            "first": "2026-11-11",
+            "last": "2026-11-11"
+          }
+        ],
+        "groups": 14
+      },
+      "M5": {
+        "recurring": [],
+        "occasional_top": [
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:00",
+            "minutes": 5,
+            "occurrences": 23,
+            "first": "2026-03-11",
+            "last": "2026-10-22"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:00",
+            "minutes": 5,
+            "occurrences": 10,
+            "first": "2025-11-11",
+            "last": "2026-03-05"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:00",
+            "minutes": 10,
+            "occurrences": 2,
+            "first": "2026-04-16",
+            "last": "2026-05-18"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:10",
+            "minutes": 5,
+            "occurrences": 1,
+            "first": "2026-09-29",
+            "last": "2026-09-29"
+          }
+        ],
+        "groups": 4
+      }
+    },
+    "USDCAD": {
+      "M1 (last 28 days)": {
+        "recurring": [],
+        "occasional_top": [
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:00",
+            "minutes": 1,
+            "occurrences": 2,
+            "first": "2026-10-20",
+            "last": "2026-10-29"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:00",
+            "minutes": 1,
+            "occurrences": 2,
+            "first": "2026-11-02",
+            "last": "2026-11-04"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:04",
+            "minutes": 1,
+            "occurrences": 2,
+            "first": "2026-11-02",
+            "last": "2026-11-11"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:02",
+            "minutes": 2,
+            "occurrences": 1,
+            "first": "2026-10-15",
+            "last": "2026-10-15"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:00",
+            "minutes": 5,
+            "occurrences": 1,
+            "first": "2026-10-19",
+            "last": "2026-10-19"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:04",
+            "minutes": 1,
+            "occurrences": 1,
+            "first": "2026-10-21",
+            "last": "2026-10-21"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:03",
+            "minutes": 2,
+            "occurrences": 1,
+            "first": "2026-11-03",
+            "last": "2026-11-03"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:03",
+            "minutes": 1,
+            "occurrences": 1,
+            "first": "2026-11-04",
+            "last": "2026-11-04"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:00",
+            "minutes": 3,
+            "occurrences": 1,
+            "first": "2026-11-09",
+            "last": "2026-11-09"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:02",
+            "minutes": 3,
+            "occurrences": 1,
+            "first": "2026-11-10",
+            "last": "2026-11-10"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:01",
+            "minutes": 2,
+            "occurrences": 1,
+            "first": "2026-11-11",
+            "last": "2026-11-11"
+          }
+        ],
+        "groups": 11
+      }
+    },
+    "NZDUSD": {
+      "M1 (last 28 days)": {
+        "recurring": [],
+        "occasional_top": [
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:03",
+            "minutes": 2,
+            "occurrences": 3,
+            "first": "2026-10-19",
+            "last": "2026-10-29"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:00",
+            "minutes": 1,
+            "occurrences": 3,
+            "first": "2026-10-21",
+            "last": "2026-10-29"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:00",
+            "minutes": 5,
+            "occurrences": 3,
+            "first": "2026-10-26",
+            "last": "2026-10-28"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:00",
+            "minutes": 1,
+            "occurrences": 3,
+            "first": "2026-11-02",
+            "last": "2026-11-10"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:00",
+            "minutes": 2,
+            "occurrences": 2,
+            "first": "2026-10-15",
+            "last": "2026-10-19"
+          },
+          {
+            "us_regime": "EDT",
+            "start_utc": "21:03",
+            "minutes": 1,
+            "occurrences": 2,
+            "first": "2026-10-15",
+            "last": "2026-10-20"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:02",
+            "minutes": 2,
+            "occurrences": 2,
+            "first": "2026-11-02",
+            "last": "2026-11-09"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:03",
+            "minutes": 2,
+            "occurrences": 2,
+            "first": "2026-11-04",
+            "last": "2026-11-05"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:04",
+            "minutes": 1,
+            "occurrences": 1,
+            "first": "2026-11-10",
+            "last": "2026-11-10"
+          },
+          {
+            "us_regime": "EST",
+            "start_utc": "22:02",
+            "minutes": 1,
+            "occurrences": 1,
+            "first": "2026-11-11",
+            "last": "2026-11-11"
+          }
+        ],
+        "groups": 10
+      }
+    }
+  },
+  "rollover_window": {
+    "EURUSD": {
+      "M1 (last 28 days)": {
+        "trading_days": 21,
+        "days_with_gap_in_17_00_17_30_new_york": 11,
+        "gap_minutes_in_window": {
+          "count": 18,
+          "median": 2.0,
+          "max": 15
+        },
+        "most_common_window_starts_new_york": [
+          [
+            "17:00",
+            10
+          ],
+          [
+            "17:02",
+            3
+          ],
+          [
+            "17:03",
+            1
+          ],
+          [
+            "17:08",
+            1
+          ],
+          [
+            "17:13",
+            1
+          ]
+        ],
+        "gaps_outside_window": 0,
+        "gaps_outside_window_samples": []
+      },
+      "M5": {
+        "trading_days": 281,
+        "days_with_gap_in_17_00_17_30_new_york": 36,
+        "gap_minutes_in_window": {
+          "count": 37,
+          "median": 5,
+          "max": 10
+        },
+        "most_common_window_starts_new_york": [
+          [
+            "17:00",
+            35
+          ],
+          [
+            "17:05",
+            1
+          ],
+          [
+            "17:20",
+            1
+          ]
+        ],
+        "gaps_outside_window": 0,
+        "gaps_outside_window_samples": []
+      }
+    },
+    "GBPUSD": {
+      "M1 (last 28 days)": {
+        "trading_days": 21,
+        "days_with_gap_in_17_00_17_30_new_york": 14,
+        "gap_minutes_in_window": {
+          "count": 30,
+          "median": 2.0,
+          "max": 8
+        },
+        "most_common_window_starts_new_york": [
+          [
+            "17:00",
+            10
+          ],
+          [
+            "17:02",
+            4
+          ],
+          [
+            "17:03",
+            3
+          ],
+          [
+            "17:01",
+            2
+          ],
+          [
+            "17:06",
+            1
+          ]
+        ],
+        "gaps_outside_window": 0,
+        "gaps_outside_window_samples": []
+      }
+    },
+    "USDJPY": {
+      "M1 (last 28 days)": {
+        "trading_days": 21,
+        "days_with_gap_in_17_00_17_30_new_york": 16,
+        "gap_minutes_in_window": {
+          "count": 17,
+          "median": 5,
+          "max": 7
+        },
+        "most_common_window_starts_new_york": [
+          [
+            "17:00",
+            15
+          ],
+          [
+            "17:15",
+            1
+          ],
+          [
+            "17:01",
+            1
+          ]
+        ],
+        "gaps_outside_window": 0,
+        "gaps_outside_window_samples": []
+      },
+      "M5": {
+        "trading_days": 282,
+        "days_with_gap_in_17_00_17_30_new_york": 89,
+        "gap_minutes_in_window": {
+          "count": 89,
+          "median": 5,
+          "max": 10
+        },
+        "most_common_window_starts_new_york": [
+          [
+            "17:00",
+            88
+          ],
+          [
+            "17:05",
+            1
+          ]
+        ],
+        "gaps_outside_window": 0,
+        "gaps_outside_window_samples": []
+      }
+    },
+    "USDCHF": {
+      "M1 (last 28 days)": {
+        "trading_days": 21,
+        "days_with_gap_in_17_00_17_30_new_york": 17,
+        "gap_minutes_in_window": {
+          "count": 24,
+          "median": 2.0,
+          "max": 7
+        },
+        "most_common_window_starts_new_york": [
+          [
+            "17:02",
+            9
+          ],
+          [
+            "17:00",
+            8
+          ],
+          [
+            "17:01",
+            2
+          ],
+          [
+            "17:15",
+            1
+          ],
+          [
+            "17:28",
+            1
+          ]
+        ],
+        "gaps_outside_window": 0,
+        "gaps_outside_window_samples": []
+      }
+    },
+    "AUDUSD": {
+      "M1 (last 28 days)": {
+        "trading_days": 21,
+        "days_with_gap_in_17_00_17_30_new_york": 13,
+        "gap_minutes_in_window": {
+          "count": 17,
+          "median": 1,
+          "max": 5
+        },
+        "most_common_window_starts_new_york": [
+          [
+            "17:02",
+            5
+          ],
+          [
+            "17:00",
+            4
+          ],
+          [
+            "17:04",
+            4
+          ],
+          [
+            "17:03",
+            2
+          ],
+          [
+            "17:01",
+            2
+          ]
+        ],
+        "gaps_outside_window": 0,
+        "gaps_outside_window_samples": []
+      },
+      "M5": {
+        "trading_days": 281,
+        "days_with_gap_in_17_00_17_30_new_york": 35,
+        "gap_minutes_in_window": {
+          "count": 36,
+          "median": 5.0,
+          "max": 10
+        },
+        "most_common_window_starts_new_york": [
+          [
+            "17:00",
+            35
+          ],
+          [
+            "17:10",
+            1
+          ]
+        ],
+        "gaps_outside_window": 0,
+        "gaps_outside_window_samples": []
+      }
+    },
+    "USDCAD": {
+      "M1 (last 28 days)": {
+        "trading_days": 21,
+        "days_with_gap_in_17_00_17_30_new_york": 11,
+        "gap_minutes_in_window": {
+          "count": 14,
+          "median": 1.0,
+          "max": 5
+        },
+        "most_common_window_starts_new_york": [
+          [
+            "17:00",
+            6
+          ],
+          [
+            "17:04",
+            3
+          ],
+          [
+            "17:02",
+            2
+          ],
+          [
+            "17:03",
+            2
+          ],
+          [
+            "17:01",
+            1
+          ]
+        ],
+        "gaps_outside_window": 0,
+        "gaps_outside_window_samples": []
+      }
+    },
+    "NZDUSD": {
+      "M1 (last 28 days)": {
+        "trading_days": 21,
+        "days_with_gap_in_17_00_17_30_new_york": 15,
+        "gap_minutes_in_window": {
+          "count": 22,
+          "median": 2.0,
+          "max": 5
+        },
+        "most_common_window_starts_new_york": [
+          [
+            "17:00",
+            11
+          ],
+          [
+            "17:03",
+            7
+          ],
+          [
+            "17:02",
+            3
+          ],
+          [
+            "17:04",
+            1
+          ]
+        ],
+        "gaps_outside_window": 0,
+        "gaps_outside_window_samples": []
+      }
+    }
+  },
+  "sunday_d1": {
+    "EURUSD": {
+      "d1_bars": 3963,
+      "d1_range": [
+        "2014-01-14T00:00:00Z",
+        "2026-11-12T00:00:00Z"
+      ],
+      "d1_bars_by_weekday": {
+        "Tue": 668,
+        "Wed": 668,
+        "Thu": 669,
+        "Fri": 665,
+        "Sun": 628,
+        "Mon": 665
+      },
+      "sunday_d1_bars": 628,
+      "sunday_first_last": [
+        "2014-01-19T00:00:00Z",
+        "2026-11-08T00:00:00Z"
+      ],
+      "sunday_median_tick_volume": 180.0,
+      "monday_median_tick_volume": 1437,
+      "sunday_range_vs_monday_median": 0.243,
+      "h1_bars_per_d1_by_weekday": {
+        "Wed": {
+          "days": 252,
+          "median": 24.0,
+          "min": 2,
+          "max": 24
+        },
+        "Thu": {
+          "days": 252,
+          "median": 24.0,
+          "min": 2,
+          "max": 24
+        },
+        "Fri": {
+          "days": 251,
+          "median": 21,
+          "min": 21,
+          "max": 22
+        },
+        "Sun": {
+          "days": 249,
+          "median": 3,
+          "min": 2,
+          "max": 3
+        },
+        "Mon": {
+          "days": 251,
+          "median": 24,
+          "min": 2,
+          "max": 24
+        },
+        "Tue": {
+          "days": 251,
+          "median": 24,
+          "min": 22,
+          "max": 24
+        }
+      }
+    },
+    "GBPUSD": {
+      "d1_bars": 824,
+      "d1_range": [
+        "2024-03-26T00:00:00Z",
+        "2026-11-12T00:00:00Z"
+      ],
+      "d1_bars_by_weekday": {
+        "Tue": 138,
+        "Wed": 138,
+        "Thu": 138,
+        "Fri": 137,
+        "Mon": 137,
+        "Sun": 136
+      },
+      "sunday_d1_bars": 136,
+      "sunday_first_last": [
+        "2024-04-07T00:00:00Z",
+        "2026-11-08T00:00:00Z"
+      ],
+      "sunday_median_tick_volume": 2821.0,
+      "monday_median_tick_volume": 55160,
+      "sunday_range_vs_monday_median": 0.331,
+      "h1_bars_per_d1_by_weekday": {
+        "Tue": {
+          "days": 138,
+          "median": 24.0,
+          "min": 10,
+          "max": 24
+        },
+        "Wed": {
+          "days": 138,
+          "median": 24.0,
+          "min": 2,
+          "max": 24
+        },
+        "Thu": {
+          "days": 138,
+          "median": 24.0,
+          "min": 2,
+          "max": 24
+        },
+        "Fri": {
+          "days": 137,
+          "median": 21,
+          "min": 21,
+          "max": 22
+        },
+        "Mon": {
+          "days": 137,
+          "median": 24,
+          "min": 24,
+          "max": 24
+        },
+        "Sun": {
+          "days": 136,
+          "median": 3.0,
+          "min": 2,
+          "max": 3
+        }
+      }
+    },
+    "USDJPY": {
+      "d1_bars": 824,
+      "d1_range": [
+        "2024-03-26T00:00:00Z",
+        "2026-11-12T00:00:00Z"
+      ],
+      "d1_bars_by_weekday": {
+        "Tue": 138,
+        "Wed": 138,
+        "Thu": 138,
+        "Fri": 137,
+        "Mon": 137,
+        "Sun": 136
+      },
+      "sunday_d1_bars": 136,
+      "sunday_first_last": [
+        "2024-04-07T00:00:00Z",
+        "2026-11-08T00:00:00Z"
+      ],
+      "sunday_median_tick_volume": 4116.0,
+      "monday_median_tick_volume": 65034,
+      "sunday_range_vs_monday_median": 0.399,
+      "h1_bars_per_d1_by_weekday": {
+        "Tue": {
+          "days": 138,
+          "median": 24.0,
+          "min": 10,
+          "max": 24
+        },
+        "Wed": {
+          "days": 138,
+          "median": 24.0,
+          "min": 2,
+          "max": 24
+        },
+        "Thu": {
+          "days": 138,
+          "median": 24.0,
+          "min": 2,
+          "max": 24
+        },
+        "Fri": {
+          "days": 137,
+          "median": 21,
+          "min": 21,
+          "max": 22
+        },
+        "Mon": {
+          "days": 137,
+          "median": 24,
+          "min": 24,
+          "max": 24
+        },
+        "Sun": {
+          "days": 136,
+          "median": 3.0,
+          "min": 2,
+          "max": 3
+        }
+      }
+    },
+    "USDCHF": {
+      "d1_bars": 824,
+      "d1_range": [
+        "2024-03-26T00:00:00Z",
+        "2026-11-12T00:00:00Z"
+      ],
+      "d1_bars_by_weekday": {
+        "Tue": 138,
+        "Wed": 138,
+        "Thu": 138,
+        "Fri": 137,
+        "Mon": 137,
+        "Sun": 136
+      },
+      "sunday_d1_bars": 136,
+      "sunday_first_last": [
+        "2024-04-07T00:00:00Z",
+        "2026-11-08T00:00:00Z"
+      ],
+      "sunday_median_tick_volume": 2083.0,
+      "monday_median_tick_volume": 27536,
+      "sunday_range_vs_monday_median": 0.497,
+      "h1_bars_per_d1_by_weekday": {
+        "Tue": {
+          "days": 138,
+          "median": 24.0,
+          "min": 10,
+          "max": 24
+        },
+        "Wed": {
+          "days": 138,
+          "median": 24.0,
+          "min": 2,
+          "max": 24
+        },
+        "Thu": {
+          "days": 138,
+          "median": 24.0,
+          "min": 2,
+          "max": 24
+        },
+        "Fri": {
+          "days": 137,
+          "median": 21,
+          "min": 21,
+          "max": 22
+        },
+        "Mon": {
+          "days": 137,
+          "median": 24,
+          "min": 24,
+          "max": 24
+        },
+        "Sun": {
+          "days": 136,
+          "median": 3.0,
+          "min": 2,
+          "max": 3
+        }
+      }
+    },
+    "AUDUSD": {
+      "d1_bars": 824,
+      "d1_range": [
+        "2024-03-26T00:00:00Z",
+        "2026-11-12T00:00:00Z"
+      ],
+      "d1_bars_by_weekday": {
+        "Tue": 138,
+        "Wed": 138,
+        "Thu": 138,
+        "Fri": 137,
+        "Mon": 137,
+        "Sun": 136
+      },
+      "sunday_d1_bars": 136,
+      "sunday_first_last": [
+        "2024-04-07T00:00:00Z",
+        "2026-11-08T00:00:00Z"
+      ],
+      "sunday_median_tick_volume": 1955.0,
+      "monday_median_tick_volume": 29693,
+      "sunday_range_vs_monday_median": 0.397,
+      "h1_bars_per_d1_by_weekday": {
+        "Tue": {
+          "days": 138,
+          "median": 24.0,
+          "min": 10,
+          "max": 24
+        },
+        "Wed": {
+          "days": 138,
+          "median": 24.0,
+          "min": 2,
+          "max": 24
+        },
+        "Thu": {
+          "days": 138,
+          "median": 24.0,
+          "min": 2,
+          "max": 24
+        },
+        "Fri": {
+          "days": 137,
+          "median": 21,
+          "min": 21,
+          "max": 22
+        },
+        "Mon": {
+          "days": 137,
+          "median": 24,
+          "min": 24,
+          "max": 24
+        },
+        "Sun": {
+          "days": 136,
+          "median": 3.0,
+          "min": 2,
+          "max": 3
+        }
+      }
+    },
+    "USDCAD": {
+      "d1_bars": 824,
+      "d1_range": [
+        "2024-03-26T00:00:00Z",
+        "2026-11-12T00:00:00Z"
+      ],
+      "d1_bars_by_weekday": {
+        "Tue": 138,
+        "Wed": 138,
+        "Thu": 138,
+        "Fri": 137,
+        "Mon": 137,
+        "Sun": 136
+      },
+      "sunday_d1_bars": 136,
+      "sunday_first_last": [
+        "2024-04-07T00:00:00Z",
+        "2026-11-08T00:00:00Z"
+      ],
+      "sunday_median_tick_volume": 1403.0,
+      "monday_median_tick_volume": 23669,
+      "sunday_range_vs_monday_median": 0.305,
+      "h1_bars_per_d1_by_weekday": {
+        "Tue": {
+          "days": 138,
+          "median": 24.0,
+          "min": 10,
+          "max": 24
+        },
+        "Wed": {
+          "days": 138,
+          "median": 24.0,
+          "min": 2,
+          "max": 24
+        },
+        "Thu": {
+          "days": 138,
+          "median": 24.0,
+          "min": 2,
+          "max": 24
+        },
+        "Fri": {
+          "days": 137,
+          "median": 21,
+          "min": 21,
+          "max": 22
+        },
+        "Mon": {
+          "days": 137,
+          "median": 24,
+          "min": 24,
+          "max": 24
+        },
+        "Sun": {
+          "days": 136,
+          "median": 3.0,
+          "min": 2,
+          "max": 3
+        }
+      }
+    },
+    "NZDUSD": {
+      "d1_bars": 824,
+      "d1_range": [
+        "2024-03-26T00:00:00Z",
+        "2026-11-12T00:00:00Z"
+      ],
+      "d1_bars_by_weekday": {
+        "Tue": 138,
+        "Wed": 138,
+        "Thu": 138,
+        "Fri": 137,
+        "Mon": 137,
+        "Sun": 136
+      },
+      "sunday_d1_bars": 136,
+      "sunday_first_last": [
+        "2024-04-07T00:00:00Z",
+        "2026-11-08T00:00:00Z"
+      ],
+      "sunday_median_tick_volume": 1521.5,
+      "monday_median_tick_volume": 21851,
+      "sunday_range_vs_monday_median": 0.354,
+      "h1_bars_per_d1_by_weekday": {
+        "Tue": {
+          "days": 138,
+          "median": 24.0,
+          "min": 10,
+          "max": 24
+        },
+        "Wed": {
+          "days": 138,
+          "median": 24.0,
+          "min": 2,
+          "max": 24
+        },
+        "Thu": {
+          "days": 138,
+          "median": 24.0,
+          "min": 2,
+          "max": 24
+        },
+        "Fri": {
+          "days": 137,
+          "median": 21,
+          "min": 21,
+          "max": 22
+        },
+        "Mon": {
+          "days": 137,
+          "median": 24,
+          "min": 24,
+          "max": 24
+        },
+        "Sun": {
+          "days": 136,
+          "median": 3.0,
+          "min": 2,
+          "max": 3
+        }
+      }
+    }
+  },
+  "intraweek_h1_gaps_2h_plus": {
+    "EURUSD": [],
+    "GBPUSD": [],
+    "USDJPY": [],
+    "USDCHF": [],
+    "AUDUSD": [],
+    "USDCAD": [],
+    "NZDUSD": []
+  },
+  "market_wide_h1_gaps": []
+}

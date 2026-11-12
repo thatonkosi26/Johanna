@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "johanna-forex-assistant"
 version = "0.1.0"
-description = "Educational research foundation for the Johanna Forex trading assistant"
+description = "Persistent Forex trading workstation and agent foundation"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Proprietary - educational research project" }
@@ -22,10 +22,16 @@ mt5 = ["MetaTrader5>=5.0.45; platform_system == 'Windows'"]
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+johanna = ["web/*.html", "web/*.css", "web/*.js"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-ra"
+markers = [
+    "browser: headless-browser dashboard smoke tests (skipped when no Chromium browser is installed)",
+]
 
 [tool.ruff]
 line-length = 100

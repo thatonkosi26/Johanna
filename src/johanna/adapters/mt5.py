@@ -8,22 +8,30 @@ from __future__ import annotations
 
 import importlib
 import json
+import math
 import os
 import tempfile
-from datetime import UTC, datetime
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
 from johanna.adapters.base import ConnectionStatus, MT5AdapterError
-from johanna.time import strictly_increasing_utc
+from johanna.fsutil import replace_with_retry
+from johanna.time import get_timezone, strictly_increasing_utc, to_utc
 
 _TIMEFRAMES = {
     "M1": "TIMEFRAME_M1",
     "M5": "TIMEFRAME_M5",
     "M15": "TIMEFRAME_M15",
+    "M30": "TIMEFRAME_M30",
     "H1": "TIMEFRAME_H1",
+    "H4": "TIMEFRAME_H4",
+    "D1": "TIMEFRAME_D1",
 }
+_TRADE_MODES = {0: "demo", 1: "contest", 2: "real"}
 
 _SYMBOL_SPEC_FIELDS = {
     "name": "name",
@@ -74,13 +82,109 @@ def _as_mapping(record: Any) -> dict[str, Any]:
     return {key: value.item() if hasattr(value, "item") else value for key, value in values.items()}
 
 
+_EPOCH = datetime(1970, 1, 1)
+
+
+class MT5TimeBaseError(MT5AdapterError):
+    """MT5 timestamps are inconsistent with UTC under the configured server clock."""
+
+
+@dataclass(frozen=True)
+class ServerClock:
+    """How MT5 epoch values map to real UTC.
+
+    MT5 ``time``/``time_msc`` fields are the trade server's *wall clock* encoded as seconds
+    since 1970 -- not true UTC. A server clock is described as an IANA ``zone`` plus a
+    whole-hour ``shift_hours``: server wall time = wall time in ``zone`` + ``shift_hours``.
+    DST comes from the zone database, never from a fixed offset.
+
+    Examples: a server on true UTC is ``ServerClock()``; a "New York close" server that
+    opens every week at Monday 00:00 (UTC+2 in US winter, UTC+3 in US summer) is
+    ``ServerClock("America/New_York", 7)``; a server documented as Athens time is
+    ``ServerClock("Europe/Athens")``.
+    """
+
+    zone: str = "UTC"
+    shift_hours: int = 0
+
+    def __post_init__(self) -> None:
+        get_timezone(self.zone)  # raises for an unknown IANA name
+        if isinstance(self.shift_hours, bool) or not isinstance(self.shift_hours, int):
+            raise ValueError("server time shift must be a whole number of hours")
+        if not -12 <= self.shift_hours <= 14:
+            raise ValueError("server time shift must be between -12 and 14 hours")
+
+    @property
+    def is_utc(self) -> bool:
+        return self.zone == "UTC" and self.shift_hours == 0
+
+    def describe(self) -> str:
+        return self.zone if not self.shift_hours else f"{self.zone}{self.shift_hours:+d}h"
+
+    def to_utc(self, epoch_seconds: float) -> datetime:
+        """Convert an MT5 epoch (server wall clock) to an aware UTC datetime."""
+        wall = _EPOCH + timedelta(seconds=float(epoch_seconds))
+        if self.is_utc:
+            return wall.replace(tzinfo=UTC)
+        reference = wall - timedelta(hours=self.shift_hours)
+        try:
+            return to_utc(reference, self.zone)
+        except ValueError as exc:  # DST gap or repeated hour in the reference zone
+            raise MT5AdapterError(
+                f"MT5 server time {wall:%Y-%m-%d %H:%M:%S} cannot be converted "
+                f"unambiguously with server clock {self.describe()}: {exc}"
+            ) from None
+
+    def from_utc(self, value: datetime) -> float:
+        """Inverse of ``to_utc``: an aware UTC instant as an MT5 epoch (server wall clock)."""
+        instant = value.astimezone(UTC)
+        if self.is_utc:
+            wall = instant.replace(tzinfo=None)
+        else:
+            local = instant.astimezone(get_timezone(self.zone)).replace(tzinfo=None)
+            wall = local + timedelta(hours=self.shift_hours)
+        return (wall - _EPOCH).total_seconds()
+
+    def bar_close_utc(self, open_utc: datetime, seconds: int) -> datetime:
+        """UTC instant at which a bar of ``seconds`` length, opened at ``open_utc``, closes.
+
+        MT5 bars span fixed lengths of *server* wall time, so the close is computed on the
+        server clock (relevant for DST-observing server zones; identical under UTC).
+        """
+        return self.to_utc(self.from_utc(open_utc) + seconds)
+
+
 class MetaTrader5Adapter:
     """Read ticks, bars, symbols, and symbol specifications from local MT5."""
 
-    def __init__(self, terminal_path: str | Path | None = None, *, mt5_module: Any = None):
+    # A real tick or completed bar can never be later than "now"; allow for clock skew.
+    FUTURE_TOLERANCE = timedelta(seconds=60)
+
+    def __init__(
+        self,
+        terminal_path: str | Path | None = None,
+        *,
+        mt5_module: Any = None,
+        server_clock: ServerClock | None = None,
+        clock: Callable[[], datetime] | None = None,
+    ):
         self.terminal_path = str(terminal_path) if terminal_path is not None else None
         self._mt5 = mt5_module
         self._initialized = False
+        self.server_clock = server_clock or ServerClock()
+        self._clock = clock or (lambda: datetime.now(UTC))
+
+    def _reject_future(self, timestamp: datetime, what: str) -> None:
+        """Fail closed instead of storing timestamps shifted by an unconfigured server zone."""
+        ahead = timestamp - self._clock()
+        if ahead > self.FUTURE_TOLERANCE:
+            hours = ahead.total_seconds() / 3600
+            raise MT5TimeBaseError(
+                f"MT5 {what} time {timestamp.isoformat()} is {hours:.2f} h ahead of this "
+                f"computer's UTC clock. MT5 reports trade-server time; configure "
+                f"mt5.server_time_zone and mt5.server_time_shift_hours (currently "
+                f"{self.server_clock.describe()}) or correct the system clock."
+            )
 
     def _module(self) -> Any:
         if self._mt5 is None:
@@ -166,6 +270,62 @@ class MetaTrader5Adapter:
             raise MT5AdapterError("MetaTrader 5 terminal or account is not connected")
         return module
 
+    def server_identity(self) -> dict[str, Any]:
+        """Broker company, trade-server name and account type only.
+
+        Deliberately excludes the account login, holder name, balance and every other
+        account identifier or value.
+        """
+        module = self._require_initialized()
+        try:
+            terminal = module.terminal_info()
+            account = module.account_info()
+        except Exception:
+            raise self._failure("server identity") from None
+        return {
+            "company": _field(account, "company") if account is not None else None,
+            "server": _field(account, "server") if account is not None else None,
+            "account_type": _TRADE_MODES.get(_field(account, "trade_mode"))
+            if account is not None
+            else None,
+            "terminal_connected": bool(_field(terminal, "connected")) if terminal else False,
+        }
+
+    def resolve_symbol(self, base: str) -> str | None:
+        """Exact broker symbol for a pair such as ``EURUSD`` (e.g. ``EURUSD`` or ``EURUSDm``).
+
+        Exact name first; otherwise the shortest broker symbol that starts with ``base``
+        (account-type suffixes). Returns ``None`` when the broker has no such symbol.
+        """
+        module = self._require_connection()
+        try:
+            if module.symbol_info(base) is not None:
+                return base
+            candidates = module.symbols_get(group=f"{base}*") or ()
+        except Exception:
+            raise self._failure(f"symbol lookup for {base!r}") from None
+        names = sorted(
+            (str(_field(item, "name")) for item in candidates if _field(item, "name")),
+            key=lambda name: (len(name), name),
+        )
+        names = [name for name in names if name.startswith(base) and len(name) <= len(base) + 4]
+        return names[0] if names else None
+
+    def price_format(self, symbol: str) -> dict[str, Any]:
+        """Digits, point size and Market Watch visibility for an exact broker symbol."""
+        module = self._require_connection()
+        try:
+            info = module.symbol_info(symbol)
+        except Exception:
+            raise self._failure(f"symbol information for {symbol!r}") from None
+        if info is None:
+            raise self._failure(f"symbol information for {symbol!r}")
+        return {
+            "digits": _optional_int(_field(info, "digits")),
+            "point": _optional_positive_float(_field(info, "point")),
+            "visible": bool(_field(info, "visible")),
+        }
+
     def list_symbols(self) -> list[str]:
         """Return exact symbol names exposed by the connected broker terminal."""
         module = self._require_connection()
@@ -202,11 +362,38 @@ class MetaTrader5Adapter:
         time_msc = result.get("time_msc")
         seconds = time_msc / 1000 if time_msc is not None else result.get("time")
         if seconds is not None:
-            result["time_utc"] = datetime.fromtimestamp(float(seconds), UTC)
+            result["time_utc"] = self.server_clock.to_utc(float(seconds))
+            self._reject_future(result["time_utc"], f"{symbol} tick")
         return result
 
-    def get_bars(self, symbol: str, timeframe: str = "M5", count: int = 5) -> list[dict[str, Any]]:
-        """Return completed bars, using MT5's documented UTC bar-open timestamps."""
+    def get_bars(
+        self, symbol: str, timeframe: str = "M5", count: int = 5, *, include_current: bool = False
+    ) -> list[dict[str, Any]]:
+        """Return bars with server-clock epochs converted to UTC bar-open times.
+
+        Completed bars only by default; ``include_current=True`` also returns the bar that is
+        still forming (its values change until it closes). Sorted, and strict: duplicate or
+        regressing timestamps raise (the collector stores these rows as they are). The live
+        workspace uses ``read_bars`` instead, which reports such anomalies per bar.
+        """
+        rows = self.read_bars(symbol, timeframe, count, include_current=include_current)
+        rows.sort(key=lambda row: row["timestamp"])
+        strictly_increasing_utc([row["timestamp"] for row in rows])
+        for row in rows:
+            del row["spread_points"]  # not part of the stored bar schema
+        return rows
+
+    def read_bars(
+        self, symbol: str, timeframe: str = "M5", count: int = 5, *, include_current: bool = False
+    ) -> list[dict[str, Any]]:
+        """Bars exactly as MT5 returned them (its order, duplicates included), UTC open times.
+
+        Like ``get_bars`` plus ``spread_points`` (MT5's per-bar spread in points, ``None``
+        when the record has none), but without sorting or rejecting duplicate/out-of-order
+        timestamps, so a caller can report such bars individually. Values are not validated.
+        A timestamp ahead of UTC still fails the whole read: that is a server-clock problem,
+        not a property of one bar.
+        """
         module = self._require_connection()
         if timeframe not in _TIMEFRAMES:
             raise ValueError(f"Unsupported timeframe {timeframe!r}; use {', '.join(_TIMEFRAMES)}")
@@ -216,7 +403,9 @@ class MetaTrader5Adapter:
         if timeframe_code is None:
             raise MT5AdapterError(f"Installed MT5 package does not expose {timeframe}")
         try:
-            rates = module.copy_rates_from_pos(symbol, timeframe_code, 1, count)
+            rates = module.copy_rates_from_pos(
+                symbol, timeframe_code, 0 if include_current else 1, count
+            )
         except Exception:
             raise self._failure(f"{timeframe} bar retrieval for {symbol!r}") from None
         if rates is None:
@@ -237,7 +426,7 @@ class MetaTrader5Adapter:
             bar_time = item.get("time")
             if bar_time is None:
                 raise MT5AdapterError("MT5 bar record has no time field")
-            timestamp = datetime.fromtimestamp(float(bar_time), UTC)
+            timestamp = self.server_clock.to_utc(float(bar_time))
             result.append(
                 {
                     "symbol": symbol,
@@ -249,13 +438,17 @@ class MetaTrader5Adapter:
                     "close": float(item["close"]),
                     "tick_volume": int(item["tick_volume"]) if "tick_volume" in item else None,
                     "real_volume": int(item["real_volume"]) if "real_volume" in item else None,
+                    "spread_points": _optional_int(item.get("spread")),
                     "source": "MT5",
-                    "source_timezone": "UTC",
+                    # IANA zone of the server clock; "UTC" also marks legacy rows that were
+                    # stored before server-time conversion existed (see migration tool).
+                    "source_timezone": self.server_clock.zone,
                     "source_timestamp_convention": "bar_open",
                 }
             )
-        result.sort(key=lambda row: row["timestamp"])
-        strictly_increasing_utc([row["timestamp"] for row in result])
+        if result:
+            newest = max(row["timestamp"] for row in result)
+            self._reject_future(newest, f"{symbol} {timeframe} bar")
         return result
 
     def capture_symbol_metadata(self, symbol: str) -> dict[str, Any]:
@@ -328,7 +521,7 @@ class MetaTrader5Adapter:
                 stream.write("\n")
                 stream.flush()
                 os.fsync(stream.fileno())
-            temp_path.replace(path)
+            replace_with_retry(temp_path, path)
         finally:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
@@ -348,6 +541,23 @@ class MetaTrader5Adapter:
 
     def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
         self.shutdown()
+
+
+def _optional_int(value: Any) -> int | None:
+    """An integer field, or ``None`` when MT5 did not provide a usable one."""
+    try:
+        return None if value is None or isinstance(value, bool) else int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_positive_float(value: Any) -> float | None:
+    """A positive finite number, or ``None`` (missing, zero or invalid metadata)."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) and number > 0 else None
 
 
 def _json_default(value: Any) -> Any:

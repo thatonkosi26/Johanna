@@ -19,6 +19,7 @@ from urllib.parse import quote
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from johanna.fsutil import replace_with_retry
 from johanna.time import to_utc
 
 TICK_SCHEMA_VERSION = "1.0.0"
@@ -125,7 +126,7 @@ def _atomic_json(path: Path, document: Mapping[str, Any]) -> None:
             stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
-        temp.replace(path)
+        replace_with_retry(temp, path)
     finally:
         if temp is not None:
             temp.unlink(missing_ok=True)
@@ -140,7 +141,7 @@ def _atomic_parquet(path: Path, rows: list[dict[str, Any]]) -> None:
         pq.write_table(pa.Table.from_pylist(rows, schema=TICK_SCHEMA), temp, compression="zstd")
         with temp.open("rb+") as stream:
             os.fsync(stream.fileno())
-        temp.replace(path)
+        replace_with_retry(temp, path)
     finally:
         if temp is not None:
             temp.unlink(missing_ok=True)
