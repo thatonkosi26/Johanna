@@ -94,7 +94,29 @@ def _continuous_dry_run(config: CollectorConfig, source: str):
 
     thread = threading.Thread(target=run, daemon=True)
     thread.start()
+    # Wait until the collector thread holds its lock *without* probing it: ``_is_locked``
+    # acquires the lock briefly, and a probe racing the thread's own acquisition made the
+    # collector correctly refuse to start (CollectorBusyError), which failed the test
+    # intermittently (mostly on Linux, where flock is non-blocking). Nothing else has touched
+    # this fresh state directory, so only the collector thread can be holding the lock.
+    lock_file = config.state_dir / f"{source}.lock"
+    _wait_for(lambda: errors or not thread.is_alive() or _lock_file_held(lock_file))
     return stop, thread, errors
+
+
+def _lock_file_held(lock_file: Path) -> bool:
+    """Evidence that some holder has the lock, without trying to acquire it.
+
+    POSIX (flock): FileLock writes ``pid=...`` only after acquiring the lock. Windows
+    (msvcrt.locking): the locked byte range cannot be read from another handle, so the read
+    itself fails with PermissionError while the lock is held.
+    """
+    try:
+        return lock_file.read_text(encoding="utf-8").startswith("pid=")
+    except PermissionError:
+        return True
+    except OSError:  # not created yet
+        return False
 
 
 def test_cli_is_refused_while_another_collector_runs_same_source(tmp_path) -> None:
