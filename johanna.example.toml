@@ -1,0 +1,23 @@
+[server]
+host = "127.0.0.1"
+port = 8765
+
+[storage]
+data_dir = "data"
+
+[application]
+log_level = "INFO"
+
+[integrations]
+market_data_provider = "mt5"
+calendar_enabled = false
+forex_factory_authorized = false
+news_enabled = false
+gemini_enabled = false
+# Reserved for the future execution adapter. The current application forces it off.
+execution_enabled = false
+# mt5_terminal_path = "C:/Program Files/MetaTrader 5/terminal64.exe"
+# Existing collector configuration. When set, the "Market monitoring" preference runs its
+# read-only MT5 collector inside the backend and the dashboard reads its output directories.
+# Leave unset to serve stored data only (no MT5 connection is made).
+# collectors_config = "collectors.toml"

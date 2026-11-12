@@ -19,6 +19,7 @@ from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from johanna.fsutil import replace_with_retry
 from johanna.time import to_utc
 
 SCHEMA_VERSION = 1
@@ -348,7 +349,7 @@ class WeeklySnapshotCache:
                 stream.write("\n")
                 stream.flush()
                 os.fsync(stream.fileno())
-            temp.replace(path)
+            replace_with_retry(temp, path)
         finally:
             if temp is not None:
                 temp.unlink(missing_ok=True)

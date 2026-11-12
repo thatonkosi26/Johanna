@@ -4,6 +4,106 @@ Johanna is an educational research project for a Forex trading assistant. The
 repository includes read-only MT5 market-data access and local data storage; it does
 not include order execution.
 
+## Persistent backend foundation
+
+Johanna now has a central backend application entry point, validated TOML and
+environment configuration, structured JSON logs, service lifecycle management,
+and a small HTTP API for a separately built frontend. Start it with:
+
+```powershell
+python -m johanna --config .\johanna.example.toml
+```
+
+The backend serves a dark, responsive workstation at `/`, with the Overview,
+Charts, Markets, Economic Calendar, News, Trading Signals, Trading Rules, Risk
+Management, Positions, Trade History, Analytics, and Settings workspaces. It
+exposes `GET /health`, `GET /status`, and `GET /api/dashboard`; workstation
+preferences are saved through `POST /api/preferences`. By default it binds to
+`127.0.0.1:8765`; override settings with `JOHANNA_SERVER_HOST`,
+`JOHANNA_SERVER_PORT`, `JOHANNA_DATA_DIR`, and `JOHANNA_LOG_LEVEL`. Integration
+settings live in `[integrations]` in the TOML example. Secrets remain in process
+environment variables such as `TWELVE_DATA_API_KEY`, `FRED_API_KEY`, and future
+`GEMINI_API_KEY`; the backend does not serve or log them.
+
+The application composition root defines separate lifecycle boundaries for
+market data, calendar, news, Gemini intelligence, signals, rules, risk, broker
+execution, and persistence. Persistence starts first and stops last. Market data
+and the economic calendar are real services (`johanna.data_services`) over the
+existing stores: the dashboard reads the same Parquet bars, manifests, collector
+progress files and weekly calendar snapshots that the collectors write, and
+reports `fresh`/`stale`/`no_data` from the last successful collection (market data
+is stale 15 minutes after the last success; calendar snapshots follow the
+adapter's 6-hour rule). News, Gemini, signals, rules, risk and execution remain
+explicit not-implemented placeholders.
+
+Market monitoring is off unless you point the backend at the existing collector
+configuration with `integrations.collectors_config = "collectors.toml"` (or
+`JOHANNA_COLLECTORS_CONFIG`). Then the persisted *Market monitoring* preference
+starts and stops the read-only MT5 collector as a supervised background worker,
+using that file's symbols, timeframes and output directories. Without it, the
+dashboard shows *Monitoring: Not configured* and serves stored data only. If
+`calendar_enabled` and `forex_factory_authorized` are both true, the calendar
+collector runs the same way. Worker failures are logged with a traceback, shown
+in the dashboard, and make `GET /health` return `503`.
+
+Only one collector runs per source at a time. The standalone CLI and the backend
+monitoring worker both take an OS-level lock on `<state_dir>/<source>.lock`
+(`mt5.lock`, `calendar.lock`) for the whole run. A second attempt for the same
+source is refused: the CLI exits with code `3`, and the backend shows
+*Monitoring: Failed* with `CollectorBusyError` until you stop the other collector
+and switch monitoring off and on. Different sources never block each other. The
+operating system releases the lock if the holder crashes or is killed, so a
+leftover `.lock` file never blocks later runs.
+
+### Live market workspace
+
+The dashboard reads quotes and candlestick bars **directly from the running MT5
+terminal on demand**; no collector is needed. Quotes are cached for 1 s and bars
+for 5 s. Each value is labelled `LIVE`, `STALE` (market closed or quiet),
+`CACHED` (MT5 unavailable; shown earlier or from the Parquet archive) or
+`UNAVAILABLE`. MT5 runs in separate worker processes, because the MetaTrader5
+package blocks every Python thread while a call runs. Johanna never starts the
+terminal, never trades, and reads only quotes, bars, symbol properties and the
+server identity (company, server name, account type). Endpoints:
+`GET /api/market/quotes[?symbols=EURUSD,...]` and
+`GET /api/market/bars?symbol=EURUSD&timeframe=H1&count=300`.
+
+MT5 timestamps are the trade server's wall clock. Set it with
+`[integrations] mt5_server_time_zone` (IANA) and `mt5_server_time_shift_hours`
+(default `UTC`/`0`, correct for GMT+0 servers such as Exness). Johanna checks the
+configured clock against every live tick. A tick that lands in the future is
+refused as `server_clock_mismatch`, so shifted times are never shown. See
+`docs/live-market-workspace-report.md`.
+
+> **Archived bars:** the 793 bars under `data/collectors/mt5` were collected from
+> the MetaQuotes-Demo server and are stamped in that server's time (UTC+3 during
+> US daylight saving, which covers their whole range, 23–30 Oct 2026). They're
+> kept unmodified. When shown as a CACHED fallback, the chart says their times
+> are server time, not UTC.
+
+`GET /health` returns `200 {"status":"ok"}` only while the application is running
+with persistence available and no service in an error state. Only one backend can
+use a data directory (`data/johanna.lock`) or port at a time. No strategy or
+order execution is implemented, and autonomous execution is reported disabled
+regardless of configuration. Use a loopback bind unless a separate authenticated
+deployment boundary is provided; the foundational API has no remote-user
+authentication. It rejects requests whose `Host` is not a loopback name or the
+configured host (DNS rebinding), cross-origin browser requests, and preference
+writes that are not `application/json`.
+
+The backend stores mutable workstation preferences, ordered watchlists, the
+effective non-secret configuration snapshot, service settings, provider update
+times, and JSON cache entries in `data/johanna.sqlite3`. A preference update is
+validated in full and written in one transaction, so a rejected request changes
+nothing. Market-data and calendar update times are not copied into SQLite: their
+system of record is the Parquet manifest, the collector progress files under
+`data/collector_state/`, and the calendar snapshot files. SQLite schema changes are
+versioned with `PRAGMA user_version`; corrupt databases are preserved under a
+`.corrupt-<UTC timestamp>` name and recreated with safe defaults. Existing
+historical bars remain in Parquet, and the economic-calendar file cache remains
+available to its current adapter. API keys and broker credentials are read from
+the process environment and are rejected from persisted preferences/configuration.
+
 ## Week 1–2 scope
 
 This foundation covers timezone-safe timestamps, a canonical OHLC bar schema and
@@ -53,6 +153,14 @@ python -m ruff format --check .
 
 The current tests are local and offline. They do not connect to a broker or call any
 external API.
+
+`tests/test_browser_smoke.py` drives the real dashboard in a headless Edge or
+Chrome through the DevTools protocol (standard library only; no Playwright or
+Selenium). It covers loading, navigation, settings persistence, monitoring
+status, market and calendar rendering, empty, stale and failed states, and
+400px/1600px layouts. It is skipped automatically when no Chromium-family browser
+is found. Point `JOHANNA_BROWSER` at a browser executable to choose one, or run
+`python -m pytest -m "not browser"` to exclude these tests.
 
 ## Read-only MT5 adapter (Windows)
 
