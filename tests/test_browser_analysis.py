@@ -479,8 +479,13 @@ def test_symbol_and_timeframe_changes_refresh_immediately(page, served) -> None:
     while not any(c[1] == "USDJPY" and c[0] >= start for c in stub.calls):
         assert time.monotonic() < deadline, stub.calls
         time.sleep(0.05)
+    # Wait until the follow-up poll is scheduled at a regular cadence. If the analysis
+    # answer beats the new pair's candles, it is scheduled at 60 s and then retime()
+    # pulls it in to the remainder of 30 s once the chart turns LIVE (e.g. 28483 ms),
+    # so the delay is any value in (0, 60000], not exactly 30000 or 60000.
     page.wait_for(
-        "[30000, 60000].includes(livePollingState().analysis.delay)",
+        "(() => { const a = livePollingState().analysis;"
+        " return !a.inFlight && a.delay !== null && a.delay > 0 && a.delay <= 60000; })()",
         timeout=8,
     )
     start = time.monotonic()
