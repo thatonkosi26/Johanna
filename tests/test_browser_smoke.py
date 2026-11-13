@@ -829,10 +829,17 @@ def test_starting_twice_adds_no_timers_or_listeners_and_stop_ends_polling(page, 
         bars = _Calls(app.live_market, "bars")
         _load(page, url)
         page.wait_for(f"({_top_js('Market data')}).startsWith('Market data LIVE')")
-        page.evaluate("startLivePolling(); startLivePolling(); startLivePolling()")
+        # Baseline and repeat count are read in one synchronous script, so no poller can
+        # finish or start a request in between (an in-flight poller holds no timer).
+        baseline, repeated = page.evaluate(
+            "(() => { const before = livePollingState().timers;"
+            " startLivePolling(); startLivePolling(); startLivePolling();"
+            " return [before, livePollingState().timers]; })()"
+        )
         assert _listener_count(page, "document", "visibilitychange") == 1
         assert _listener_count(page, "window", "pagehide") == 1
-        assert page.evaluate("livePollingState().timers") <= 4  # quotes, bars, snapshot, expiry
+        assert baseline >= 1  # polling really is running after the initial start
+        assert repeated == baseline  # repeated starts add no timers
         page.evaluate("stopLivePolling()")
         stopped_at = time.monotonic() + 0.5
         state = page.evaluate("livePollingState()")

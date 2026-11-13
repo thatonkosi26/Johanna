@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from johanna.application import JohannaApplication
 from johanna.live_market import TIMEFRAMES
+from johanna.market_analysis import ANALYSIS_TIMEFRAMES
 from johanna.persistence import MAX_WATCHLIST, SYMBOL_PATTERN
 
 LOGGER = logging.getLogger("johanna.api")
@@ -30,6 +31,7 @@ _ROUTES: dict[str, frozenset[str]] = {
     "/api/market/quotes": frozenset({"GET"}),
     "/api/market/bars": frozenset({"GET"}),
     "/api/market/snapshot": frozenset({"GET"}),
+    "/api/market/analysis": frozenset({"GET"}),
 }
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
@@ -81,6 +83,8 @@ class BackendAPI:
                 return self._market_bars(environ, start_response)
             if path == "/api/market/snapshot":
                 return self._market_bars(environ, start_response, snapshot=True)
+            if path == "/api/market/analysis":
+                return self._market_analysis(environ, start_response)
             return self._save_preferences(environ, start_response)
         except Exception:
             LOGGER.exception("Unhandled backend request error")
@@ -168,6 +172,33 @@ class BackendAPI:
             )
         live = self.application.live_market
         payload = (live.snapshot if snapshot else live.bars)(symbol, timeframe, count)
+        return self._response(start_response, HTTPStatus.OK, payload)
+
+    def _market_analysis(self, environ: dict, start_response: Callable) -> list[bytes]:
+        """T6 analysis of a new snapshot (read-only). Only ``symbol`` and ``timeframe`` are
+        read; the evaluation time and bar count are decided by the backend."""
+        query = parse_qs(environ.get("QUERY_STRING", ""))
+        symbol = query.get("symbol", [""])[0].strip().upper()
+        timeframe = query.get("timeframe", ["H1"])[0].strip().upper()
+        if not SYMBOL_PATTERN.fullmatch(symbol) or timeframe not in TIMEFRAMES:
+            return self._response(
+                start_response,
+                HTTPStatus.BAD_REQUEST,
+                {
+                    "error": "invalid_analysis_request",
+                    "message": f"Need a valid symbol and a timeframe in {', '.join(TIMEFRAMES)}.",
+                },
+            )
+        if timeframe not in ANALYSIS_TIMEFRAMES:
+            return self._response(
+                start_response,
+                HTTPStatus.BAD_REQUEST,
+                {
+                    "error": "analysis_unsupported_timeframe",
+                    "message": f"Analysis supports {', '.join(ANALYSIS_TIMEFRAMES)}.",
+                },
+            )
+        payload = self.application.market_analysis.analyse(symbol, timeframe)
         return self._response(start_response, HTTPStatus.OK, payload)
 
     def _save_preferences(self, environ: dict, start_response: Callable) -> list[bytes]:

@@ -16,7 +16,7 @@ import pytest
 from test_window_validation import candle, snapshot
 
 from johanna.analysis.engine import DEFAULT_PARAMETERS, analyse_window
-from johanna.analysis.indicators import ema_series
+from johanna.analysis.indicators import ema_series, updates_to_converge
 from johanna.analysis.sessions import EXNESS_T0_PROVISIONAL
 from johanna.analysis.window import session_candle_check, validate_window
 
@@ -197,6 +197,47 @@ def test_default_parameters_are_the_approved_ones() -> None:
     )
     assert (p.swing_k, p.sr_tolerance_atr, p.volatility_window) == (2, 0.25, 100)
     assert (p.volatility_low, p.volatility_high, p.convergence_tolerance) == (25.0, 75.0, 0.01)
+
+
+# ---------------------------------------------------------------- T5.1 EMA convergence boundary
+# Totals are p (SMA seed, first EMA at index p - 1) + n recursive updates, n being the smallest
+# integer with (1 - alpha)^n < 1 %: EMA20 20 + 47, EMA50 50 + 116, EMA200 200 + 461.
+EMA_BOUNDARIES = [(0, 20, 67), (1, 50, 166), (2, 200, 661)]
+
+
+@pytest.mark.parametrize(("position", "period", "total"), EMA_BOUNDARIES)
+def test_ema_seed_weight_crosses_one_percent_exactly_at_total(position, period, total) -> None:
+    # Independent of updates_to_converge: by linearity, closes of 1 for the seed and 0 after it
+    # make ema_series output exactly the remaining seed weight (1 - alpha)^n.
+    def seed_weight_after(observations: int) -> float:
+        return ema_series([1.0] * period + [0.0] * (observations - period), period)[-1]
+
+    assert seed_weight_after(total - 1) >= 0.01  # not settled one observation earlier
+    assert seed_weight_after(total) < 0.01  # strictly below 1 % at the total
+
+
+@pytest.mark.parametrize(("position", "period", "total"), EMA_BOUNDARIES)
+def test_engine_ema_is_not_settled_before_total_and_settled_at_total(
+    position, period, total
+) -> None:
+    for count, settled in ((total - 1, False), (total, True)):
+        _, validation, result = analysed(history(count))
+        assert validation["verdict"]["state"] == "accepted", validation["verdict"]
+        ema = result["indicators"]["ema"][position]
+        assert ema["period"] == period
+        convergence = ema["convergence"]
+        assert convergence["observations_required"] == total
+        assert convergence["updates"] == count - period
+        assert convergence["converged"] is settled
+        assert (convergence["seed_weight"] < 0.01) is settled
+        assert ema["status"] == ("available" if settled else "not_converged")
+        assert ema["trusted"] is settled
+        assert ema["value"] is not None  # warmed up in both cases
+
+
+def test_convergence_condition_is_strict_at_equality() -> None:
+    # (1 - 0.5)^2 == 0.25 exactly: equal to the tolerance is NOT converged, so 3 updates.
+    assert updates_to_converge(0.5, 0.25) == 3
 
 
 def test_performance_on_the_1000_candle_maximum() -> None:

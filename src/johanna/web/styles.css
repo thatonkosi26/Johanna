@@ -180,3 +180,46 @@ h1 { font-size: 22px; line-height: 1.2; letter-spacing: -.025em; margin: 6px 0 0
 .go-live:hover { filter: brightness(1.1); }
 .chart-hint { padding: 0 12px 4px; font-size: 9.5px; color: var(--dim); }
 .invalid-badge { color: var(--red); border-color: #6b3438; }
+
+/* I2: market analysis panels (read-only presentation of the backend T6 evaluation). */
+.analysis-full { margin-top: 12px; }
+/* Reserve the panel's height from the first render, so an arriving result never toggles the
+   page scrollbar (which would resize the chart under the user's cursor). */
+#analysis-full-body { min-height: 520px; }
+.analysis-compact-head, .analysis-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 13px 0; }
+.analysis-target { color: var(--muted); font: 10px var(--mono); }
+.analysis-compact { padding: 6px 13px 10px; }
+.analysis-kv { display: grid; grid-template-columns: minmax(110px, .9fr) minmax(0, 1.6fr); gap: 10px; align-items: baseline; padding: 5px 0; border-bottom: 1px solid var(--line-soft); font-size: 10px; }
+.analysis-kv > span:first-child { color: var(--dim); }
+.analysis-kv > span:last-child { overflow-wrap: anywhere; }
+.analysis-explanation { margin: 8px 0 4px; font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
+.analysis-state-note { margin: 6px 13px; padding: 7px 9px; border: 1px solid var(--line); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
+.analysis-compact .analysis-state-note { margin: 6px 0; }
+.analysis-state-note.outdated, .analysis-state-note.provisional { border-color: var(--amber); color: var(--amber); }
+.analysis-state-note.unavailable { border-color: var(--red); color: var(--red); }
+.analysis-notice.candidate { margin: 8px 13px; padding: 8px 10px; border: 1px dashed var(--amber); color: var(--text); font-size: 10px; line-height: 1.5; }
+.analysis-compact .analysis-notice.candidate { margin: 8px 0 0; }
+.analysis-window-note { margin: 8px 13px; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.analysis-compact-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 8px; color: var(--dim); font-size: 9px; }
+.analysis-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0 18px; }
+.analysis-section { padding: 6px 13px 10px; min-width: 0; }
+.analysis-section h3 { margin: 6px 0 6px; font-size: 11px; font-weight: 650; }
+.analysis-section h4, .analysis-details h4 { margin: 10px 0 4px; font-size: 10px; font-weight: 600; color: var(--muted); }
+.analysis-list { margin: 6px 0; padding-left: 16px; font-size: 10px; line-height: 1.55; overflow-wrap: anywhere; }
+.analysis-muted { color: var(--dim); }
+.analysis-table th { width: 32%; font: 600 10px var(--sans) !important; color: var(--text) !important; text-transform: none !important; letter-spacing: 0 !important; }
+.analysis-table td, .analysis-table th { height: auto !important; padding: 7px 10px !important; vertical-align: top; line-height: 1.5; overflow-wrap: anywhere; }
+.analysis-dimensions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.analysis-details { margin: 4px 13px 12px; font-size: 10px; }
+.analysis-details summary { cursor: pointer; color: var(--accent); padding: 6px 0; }
+.analysis-json { max-height: 260px; overflow: auto; background: var(--panel-raised); border: 1px solid var(--line-soft); padding: 8px; font: 9px var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.analysis-outcome.outcome-none { color: var(--muted); }
+.analysis-outcome.outcome-condition { color: var(--accent); border-color: var(--accent); }
+.analysis-outcome.outcome-candidate { color: var(--amber); border: 1px dashed var(--amber); }
+.check-pass, .veto-off { color: var(--green); }
+.check-fail, .veto-on { color: var(--red); }
+.check-unavailable, .check-not_applicable { color: var(--dim); }
+.dimension-pass, .validation-accepted { color: var(--green); }
+.dimension-provisional, .validation-provisional { color: var(--amber); }
+.dimension-fail, .validation-rejected { color: var(--red); }
+.analysis-section code, .analysis-list code { font: 9px var(--mono); color: var(--muted); }
