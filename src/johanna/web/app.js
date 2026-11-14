@@ -30,12 +30,20 @@ const POLL = {
   quotesTimeoutMs: 45000,
   barsTimeoutMs: 45000,
   dashboardMs: 30000,
+  // Market analysis (T6 via /api/market/analysis): a new backend evaluation per request.
+  analysisMs: 30000, // chart LIVE
+  quietAnalysisMs: 60000, // chart not LIVE
+  analysisTimeoutMs: 45000,
 };
 // A stored response stops counting as live when no fresh one has arrived for this long,
 // whatever the reason (request failed, hung, backend gone, tab was hidden).
 const QUOTES_EXPIRE_MS = 10000;
 const BARS_EXPIRE_MS = 65000;
 const MAX_WATCHLIST = 200; // same limit as the backend (persistence.MAX_WATCHLIST)
+// Presentation policy only: after this long without a new evaluation, a displayed analysis
+// stops being called current. It never relaxes the backend's 5 s data-freshness rule (T2).
+const ANALYSIS_EXPIRE_MS = 65000;
+const ANALYSIS_TIMEFRAMES = ["H1", "H4", "D1"]; // the backend's T6 scope; others are never requested
 
 const PAGE_IDS = new Set(NAV_ITEMS.map(([id]) => id));
 const pageFromHash = () => {
@@ -63,6 +71,15 @@ const state = {
   chartDraws: 0, // canvas repaints (unchanged data is not repainted)
   view: null, // chart viewport (zoom, pan, price scale) for one pair/timeframe; see chartView()
   chartViewport: null, // the candle range last drawn
+  // Market analysis: the last *successful* /api/market/analysis response and its request
+  // bookkeeping. Kept apart from chart and viewport state; displayed via analysisStatus().
+  analysis: null,
+  analysisKey: null,
+  analysisReceivedAt: 0, // browser receipt time (Date.now()); never compared with backend times
+  analysisError: null, // { key, reason, message } of the latest failed refresh
+  analysisInFlight: false,
+  analysisSeq: 0,
+  analysisCandle: null, // { key, t } latest closed chart candle seen (early-refresh trigger)
 };
 const main = document.querySelector("#main-content");
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -752,7 +769,9 @@ function zoomChart(clientX, zoomIn) {
   if (count === viewport.count) count += zoomIn ? -1 : 1;
   count = clamp(count, viewport.minCount, viewport.maxCount);
   if (count === viewport.count) return;
-  const start = clamp(Math.round(anchor - fraction * count), 0, geometry.bars.length - count);
+  // Same floor convention as candleAtX, so the candle under the cursor stays exactly in place
+  // at any canvas width (rounding here drifted by up to a candle per wheel step).
+  const start = clamp(Math.floor(anchor) - Math.floor(fraction * count), 0, geometry.bars.length - count);
   setViewport(geometry.bars, start, count);
   drawChart();
 }
@@ -833,6 +852,396 @@ function chartViewState() {
   return state.chartViewport ? { ...state.chartViewport } : null;
 }
 
+// ---------------------------------------------------------------- market analysis (read-only)
+// Presentation only. Every value shown comes from GET /api/market/analysis: the backend's T6
+// result (authoritative), its T4 window diagnostics (window_validation, a verbatim projection
+// of the T4 object that evaluation used), the snapshot summary and transport metadata.
+// Nothing is calculated, inferred or re-classified here, and none of this touches the chart.
+const ANALYSIS_PAGES = new Set(["overview", "charts"]);
+const ANALYSIS_STATE_LABELS = {
+  unsupported: "Unsupported", loading: "Loading", current: "Current", outdated: "Outdated",
+  provisional: "Provisional", unavailable: "Unavailable", error: "Error",
+};
+const ANALYSIS_STATE_CLASS = { current: "good", outdated: "warn", provisional: "warn", unavailable: "bad", error: "bad" };
+const OUTCOME_LABELS = { NO_TRADE: "No trade", MARKET_CONDITION: "Market condition only", TRADE_CANDIDATE: "Research candidate" };
+const OUTCOME_CLASS = { NO_TRADE: "outcome-none", MARKET_CONDITION: "outcome-condition", TRADE_CANDIDATE: "outcome-candidate" };
+const SETUP_STATUS_LABELS = { qualified: "qualified", not_qualified: "not qualified", not_evaluable: "not evaluable" };
+const CHECK_RESULT_LABELS = { pass: "Pass", fail: "Fail", unavailable: "Unavailable", not_applicable: "Not applicable" };
+const CHECK_LABELS = {
+  TC1_regime: "TC1 · Trend regime is trending",
+  TC2_bias: "TC2 · Directional bias is aligned",
+  TC3_long_term: "TC3 · Long-term alignment with EMA200",
+  TC4_pullback: "TC4 · Pullback to EMA20",
+  TC5_resumption: "TC5 · Close back beyond EMA20",
+  TC6_clearance: "TC6 · Clearance to the opposing level",
+};
+const VETO_LABELS = {
+  V1_ema50_structure_break: "V1 · Close beyond EMA50 in the pullback window",
+  V2_swing_context_conflict: "V2 · Complete opposite swing structure",
+};
+const DIMENSION_LABELS = {
+  trend_regime: "Market condition (trend regime)",
+  directional_bias: "Directional bias",
+  trend_strength: "Trend strength (ADX)",
+  volatility: "Volatility (ATR percentile)",
+  momentum: "Momentum (RSI)",
+  location: "Support / resistance location",
+  swing_structure: "Swing structure",
+};
+const VALIDATION_DIMENSIONS = ["price", "timestamps", "closure", "continuity", "completeness", "snapshot", "session_candles", "recency"];
+// Readable labels for known T4 / T2 codes; the actual code is always shown next to the label,
+// and an unknown code is shown as-is (never dropped).
+const VALIDATION_CODE_LABELS = {
+  insufficient_history: "Not enough closed candles",
+  insufficient_warmup: "Not enough warm-up candles",
+  empty_window: "No candles in the window",
+  snapshot_refused: "Market data snapshot refused",
+  snapshot_provisional: "Market data snapshot provisional",
+  snapshot_metadata_missing: "Snapshot metadata missing",
+  snapshot_state_unknown: "Snapshot state unknown",
+  clock_only_closure: "Candle closed by clock only (provisional)",
+  forming_candle_inside_window: "Forming candle inside the window",
+  closure_unknown: "Candle closure unknown",
+  invalid_ohlc: "Invalid prices",
+  invalid_timestamps: "Invalid timestamps",
+  out_of_order: "Candles out of order",
+  conflicting_duplicates: "Conflicting duplicate candles",
+  identical_duplicates_collapsed: "Identical duplicates collapsed",
+  duplicate_metadata_differs: "Duplicate metadata differs",
+  quality_unknown: "Data quality unknown",
+  gap_market_wide_unverified: "Gap not verified as market-wide",
+  unexpected_candle_in_closure: "Candle inside a configured closure",
+  snapshot_too_old: "Market data older than the 5 s limit at evaluation",
+  not_live_source: "Not live MT5 data",
+  no_bars: "MT5 returned no bars",
+  tick_missing: "No usable snapshot tick",
+  timestamps_missing: "Retrieval time missing",
+  inconsistent_timestamps: "Inconsistent timestamps",
+  tick_bars_skew: "Tick and bars retrieved too far apart",
+  clock_bars_skew: "Clock check too far from bars retrieval",
+  clock_mismatch: "Server clock mismatch",
+  clock_stale_ticks: "No recent ticks (market closed or quiet)",
+  clock_unverified: "Server clock not verified",
+  invalid_bars_present: "Invalid bars present",
+  legacy_time_basis: "Legacy server-time bars",
+  bars_unavailable: "Bars unavailable",
+  mt5_unavailable_cached: "MT5 unavailable: cached bars",
+  // E1 market-data recency
+  recency_reference_missing: "Recency cannot be established",
+  candle_after_reference: "Candle newer than the market data reference",
+  forming_candle_behind_tick: "Candle marked forming after its close (tick)",
+  forming_candle_past_clock_close: "Candle marked forming after its close (clock)",
+  tick_closure_unsupported: "Candle marked closed before the tick reached its close",
+  clock_closure_premature: "Candle marked closed before it could close",
+  closure_precedence_mismatch: "Candle closure label inconsistent",
+  closure_flag_mismatch: "Candle completion flag inconsistent",
+  close_time_mismatch: "Candle close time inconsistent",
+  closed_history_gap: "Missing closed candle inside the analysis window",
+  closed_history_gap_market_wide_unverified: "Missing closed candle, not verified as market-wide",
+  closed_history_behind_tick: "History stale: expected closed candles missing",
+  history_behind_clock: "History stale: expected candles missing (clock)",
+  recency_relies_on_unverified_closure: "Recent coverage relies on unverified candles",
+  expected_slot_excluded: "Expected latest candle analytically excluded",
+  tick_stale_in_open_session: "No recent ticks while the market should be open",
+  session_schedule_contradiction: "Market data contradicts the session schedule",
+};
+const codeLabel = (code) => VALIDATION_CODE_LABELS[code] ?? String(code ?? "unknown");
+const humanize = (value) => (value == null ? "—" : String(value).replaceAll("_", " "));
+
+const analysisSupported = () => ANALYSIS_TIMEFRAMES.includes(prefs().selected_chart_timeframe);
+// Whether analysis may be requested right now (the poller neither requests nor schedules otherwise).
+function analysisActive() {
+  return ANALYSIS_PAGES.has(state.page) && analysisSupported() && Boolean(prefs().selected_currency_pair) && !state.error;
+}
+const analysisInterval = () => (chartData()?.status === "LIVE" ? POLL.analysisMs : POLL.quietAnalysisMs);
+
+// Open time of the newest closed (complete) candle in the chart data for the current selection.
+function latestClosedChartT() {
+  const data = chartData();
+  return data?.bars?.filter((bar) => bar.complete === true).at(-1)?.t ?? null;
+}
+
+// Status priority: unsupported, loading, error (no usable response), R1 unavailable, R2
+// provisional, then current/outdated for R3-R7. R1 and R2 are never current.
+function analysisStatus() {
+  if (!analysisSupported()) return { state: "unsupported", reasons: [] };
+  const key = chartKey();
+  const envelope = state.analysisKey === key ? state.analysis : null;
+  const error = state.analysisError?.key === key ? state.analysisError : null;
+  if (!envelope) return error && !state.analysisInFlight ? { state: "error", error, reasons: [] } : { state: "loading", reasons: [] };
+  const rule = envelope.result.decision.rule;
+  if (rule === "R1") return { state: "unavailable", envelope, error, reasons: [] };
+  if (rule === "R2") return { state: "provisional", envelope, error, reasons: [] };
+  const reasons = [];
+  if (error) reasons.push(`the last refresh failed (${error.message || error.reason})`);
+  if (Date.now() - state.analysisReceivedAt > ANALYSIS_EXPIRE_MS) reasons.push(`no new evaluation for over ${ANALYSIS_EXPIRE_MS / 1000} s`);
+  const closed = latestClosedChartT();
+  const lastT = envelope.result.inputs?.window?.last_t;
+  if (closed && lastT && Date.parse(closed) > Date.parse(lastT)) reasons.push("a newer candle has closed since this evaluation");
+  if (chartData()?.status !== "LIVE") reasons.push("the chart is not LIVE");
+  return { state: reasons.length ? "outdated" : "current", envelope, error, reasons };
+}
+
+const viewingHistory = () => state.view?.key === chartKey() && state.view?.follow === false;
+const analysisSignature = () => {
+  const status = analysisStatus();
+  return JSON.stringify([status.state, status.reasons, state.analysisReceivedAt, state.analysisKey, viewingHistory()]);
+};
+
+// ---- value formatting (presentation only)
+function analysisValue(value) {
+  if (value === null || value === undefined) return "—";
+  if (typeof value === "number") return Number.isFinite(value) ? value.toLocaleString("en-US", { maximumFractionDigits: 5, useGrouping: false }) : "—";
+  if (typeof value === "boolean") return value ? "yes" : "no";
+  if (Array.isArray(value)) return value.length ? value.map(analysisValue).join(", ") : "—";
+  if (typeof value === "object") return Object.entries(value).map(([k, v]) => `${humanize(k)} ${analysisValue(v)}`).join("; ") || "—";
+  return String(value);
+}
+const stampSeconds = (value) => {
+  const date = new Date(value ?? "");
+  if (!value || Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat(undefined, { timeZone: tz(), dateStyle: "medium", timeStyle: "medium" }).format(date);
+};
+function evidenceText(item) {
+  if (!item) return "—";
+  const compared = item.threshold !== null && item.threshold !== undefined ? ` (${item.comparison ? `${item.comparison} ` : ""}${analysisValue(item.threshold)})` : "";
+  return `${humanize(item.id)}: ${analysisValue(item.observed)}${compared}`;
+}
+const kv = (label, value, extraClass = "") => `<div class="analysis-kv ${extraClass}"><span>${esc(label)}</span> <span>${value}</span></div>`;
+const analysisList = (items) => (items.length ? `<ul class="analysis-list">${items.map((item) => `<li>${item}</li>`).join("")}</ul>` : "");
+
+function analysisStateBadge(status) {
+  return `<span class="badge analysis-state ${ANALYSIS_STATE_CLASS[status.state] ?? ""}" data-analysis-state="${esc(status.state)}">${esc(ANALYSIS_STATE_LABELS[status.state])}</span>`;
+}
+function outcomeBadge(decision) {
+  const outcome = decision?.outcome;
+  return `<span class="badge analysis-outcome ${OUTCOME_CLASS[outcome] ?? ""}" data-outcome="${esc(outcome)}">${esc(OUTCOME_LABELS[outcome] ?? outcome ?? "—")} · ${esc(decision?.rule ?? "—")}</span>`;
+}
+function stateExplanation(status) {
+  if (status.state === "unavailable") return "Unavailable: the backend could not produce a valid analysis for this data (rule R1).";
+  if (status.state === "provisional") return "Provisional: the data window is provisional, so this is diagnostic only and not a reliable result (rule R2).";
+  if (status.state === "outdated") return `Outdated: ${status.reasons.join("; ")}.`;
+  return "";
+}
+// The concise explanation: for a T4 rejection the actual T4 reason, otherwise T6's first reason.
+function analysisExplanation(status) {
+  const { result, window_validation: wv } = status.envelope;
+  const t4 = wv?.available === true ? wv.verdict?.reasons?.[0] : null;
+  if (result.decision.rule === "R1" && t4) return `${codeLabel(t4.code)}: ${t4.detail ?? ""}`;
+  if (result.decision.rule === "R1" && wv?.available === false) return wv.reason ?? result.decision.reasons?.[0] ?? "";
+  return result.decision.reasons?.[0] ?? "";
+}
+function setupLine(opportunity) {
+  if (!opportunity) return "Not evaluated";
+  const direction = opportunity.direction ? ` (${opportunity.direction})` : "";
+  return `Trend continuation · ${SETUP_STATUS_LABELS[opportunity.status] ?? humanize(opportunity.status)}${direction}`;
+}
+const candidateNotice = (decision) => (decision?.outcome === "TRADE_CANDIDATE"
+  ? `<div class="analysis-notice candidate">Research candidate only: an analytical finding, not an instruction or recommendation to trade. Nothing is executed (actionable: ${analysisValue(decision.actionable)}).</div>`
+  : "");
+
+// ---- compact panel (Overview)
+function analysisCompactMarkup() {
+  const status = analysisStatus();
+  const head = `<div class="analysis-compact-head">${analysisStateBadge(status)}<span class="analysis-target">${esc(prefs().selected_currency_pair || "—")} · ${esc(prefs().selected_chart_timeframe || "—")}</span></div>`;
+  if (status.state === "unsupported") return `${head}${emptyState("Analysis not available for this timeframe", `Market analysis covers ${ANALYSIS_TIMEFRAMES.join(", ")}; nothing is requested for ${prefs().selected_chart_timeframe}.`)}`;
+  if (status.state === "loading") return `${head}${emptyState("Loading analysis", "Requesting a new backend evaluation…")}`;
+  if (status.state === "error") return `${head}${emptyState("Analysis unavailable", `${status.error.message || status.error.reason}`, "error-state")}`;
+  const { result } = status.envelope;
+  const summary = result.market_condition?.summary;
+  const explanation = stateExplanation(status);
+  return `${head}<div class="analysis-compact">
+    ${kv("Decision", outcomeBadge(result.decision))}
+    ${kv("Market condition", esc(humanize(summary?.trend_regime)))}
+    ${kv("Directional bias", esc(humanize(summary?.directional_bias)))}
+    ${kv("Setup", esc(setupLine(result.opportunity)))}
+    <p class="analysis-explanation">${esc(analysisExplanation(status))}</p>
+    ${explanation ? `<p class="analysis-state-note ${esc(status.state)}">${esc(explanation)}</p>` : ""}
+    ${kv("Evaluated", `${esc(stampSeconds(result.evaluated_at_utc))} · received <span class="analysis-age">—</span>`)}
+    ${candidateNotice(result.decision)}
+    <div class="analysis-compact-foot"><span>Analysis only; no trade instructions.</span><button class="text-link" data-page="charts">Full analysis</button></div>
+  </div>`;
+}
+
+// ---- full panel (Charts)
+function conditionRows(marketCondition) {
+  if (!marketCondition) return `<p class="analysis-muted">No market conditions: the analysis was not calculated.</p>`;
+  const dims = marketCondition.dimensions ?? {};
+  const rows = Object.entries(DIMENSION_LABELS).map(([name, label]) => {
+    const dim = dims[name];
+    if (!dim) return "";
+    const value = Array.isArray(dim.state) ? dim.state.map(humanize).join(", ") : humanize(dim.state);
+    const details = [];
+    const evidence = [...(dim.supporting ?? []), ...(dim.contradicting ?? [])];
+    if (name === "directional_bias" && dim.votes?.length) details.push(...dim.votes.map((vote) => `${esc(humanize(vote.id))}: ${esc(humanize(vote.vote))}`));
+    else if (evidence.length) details.push(esc(evidenceText(evidence[0])));
+    if (name === "location") {
+      if (dim.zones_containing_price?.length) details.push(`inside ${esc(dim.zones_containing_price.join(", "))}`);
+      if (dim.nearest_below) details.push(`nearest below ${esc(dim.nearest_below.id)} (${esc(analysisValue(dim.nearest_below.distance_atr))} ATR)`);
+      if (dim.nearest_above) details.push(`nearest above ${esc(dim.nearest_above.id)} (${esc(analysisValue(dim.nearest_above.distance_atr))} ATR)`);
+    }
+    if (name === "swing_structure" && dim.pivots?.length) details.push(...dim.pivots.map((pivot) => `${esc(pivot.role)} ${esc(analysisValue(pivot.price))} at ${esc(stamp(pivot.pivot_t))}`));
+    details.push(...(dim.unavailable ?? []).map((item) => `unavailable: ${esc(humanize(item.input))} (${esc(item.reason ?? "no reason given")})`));
+    return `<tr><th scope="row">${esc(label)}</th><td>${esc(value)}${dim.trusted ? "" : ' <span class="analysis-muted">(not trusted)</span>'}</td><td>${details.join("<br>") || "—"}</td></tr>`;
+  }).join("");
+  return `<div class="table-scroll"><table class="data-table analysis-table"><tbody>${rows}</tbody></table></div>`;
+}
+
+function setupMarkup(opportunity, decision) {
+  if (!opportunity) return `<p class="analysis-muted">Setup not evaluated: no analysis was calculated (rule ${esc(decision?.rule ?? "—")}).</p>`;
+  const head = `<p><strong>${esc(setupLine(opportunity))}</strong></p>`;
+  if (!opportunity.checklist?.length) {
+    const why = (opportunity.required_inputs?.unavailable ?? []).map((item) => `${esc(humanize(item.input))}: ${esc(item.reason ?? "")}`);
+    return `${head}<p class="analysis-muted">Checks not evaluated.</p>${analysisList(why)}`;
+  }
+  const checks = opportunity.checklist.map((check) => {
+    const extra = [];
+    if (check.evidence_id) extra.push(esc(humanize(check.evidence_id)));
+    if (check.price_inside_zone === true) extra.push("price inside the raw level interval");
+    if (check.detail) extra.push(esc(check.detail));
+    const compared = check.threshold !== null && check.threshold !== undefined ? ` vs ${esc(analysisValue(check.threshold))}` : "";
+    return `<tr data-check="${esc(check.id)}"><th scope="row">${esc(CHECK_LABELS[check.id] ?? check.id)}</th><td class="check-${esc(check.result)}">${esc(CHECK_RESULT_LABELS[check.result] ?? check.result)}</td><td>${esc(analysisValue(check.observed))}${compared}${extra.length ? `<br><span class="analysis-muted">${extra.join(" · ")}</span>` : ""}</td></tr>`;
+  }).join("");
+  const vetoes = (opportunity.vetoes ?? []).map((veto) => {
+    const label = veto.triggered === true ? "Triggered" : veto.triggered === false ? "Not triggered" : "Not evaluated";
+    return `<tr data-veto="${esc(veto.id)}"><th scope="row">${esc(VETO_LABELS[veto.id] ?? veto.id)}</th><td class="veto-${veto.triggered === true ? "on" : "off"}">${label}</td><td>${esc(veto.detail ?? "—")}</td></tr>`;
+  }).join("");
+  const cautions = (opportunity.cautions ?? []).map((item) => `${esc(humanize(item.id))}: caution only, not a veto`);
+  const unavailable = [...(opportunity.required_inputs?.unavailable ?? []), ...(opportunity.unavailable_context ?? [])]
+    .map((item) => `${esc(humanize(item.input))}: ${esc(item.reason ?? "no reason given")}`);
+  return `${head}<div class="table-scroll"><table class="data-table analysis-table"><tbody>${checks}${vetoes}</tbody></table></div>
+    ${cautions.length ? `<h4>Cautions</h4>${analysisList(cautions)}` : ""}
+    ${unavailable.length ? `<h4>Unavailable inputs</h4>${analysisList(unavailable)}` : ""}`;
+}
+
+function validationMarkup(wv) {
+  if (!wv) return `<p class="analysis-muted">No window validation was returned.</p>`;
+  if (wv.available !== true) return `<p><strong>T4 validation did not run.</strong></p><p class="analysis-muted">${esc(wv.reason ?? "No reason was given.")}</p>`;
+  const verdict = wv.verdict ?? {};
+  const reasons = (verdict.reasons ?? []).map((reason) => {
+    const sub = Array.isArray(reason.snapshot_reasons) && reason.snapshot_reasons.length
+      ? `<br><span class="analysis-muted">Snapshot: ${reason.snapshot_reasons.map((code) => `${esc(codeLabel(code))} <code>${esc(code)}</code>`).join(", ")}</span>`
+      : "";
+    return `<strong>${esc(codeLabel(reason.code))}</strong>${reason.detail ? `: ${esc(reason.detail)}` : ""} <span class="analysis-muted">(${esc(humanize(reason.dimension))} · ${esc(reason.severity ?? "—")} · <code>${esc(reason.code)}</code>)</span>${sub}`;
+  });
+  const dimensions = VALIDATION_DIMENSIONS.filter((name) => wv.dimensions?.[name])
+    .concat(Object.keys(wv.dimensions ?? {}).filter((name) => !VALIDATION_DIMENSIONS.includes(name)))
+    .map((name) => `<span class="badge dimension-${esc(wv.dimensions[name].status)}">${esc(humanize(name))}: ${esc(wv.dimensions[name].status ?? "—")}</span>`).join(" ");
+  return `${kv("Verdict", `<span class="badge validation-${esc(verdict.state)}">${esc(humanize(verdict.state))}</span>`)}
+    ${kv("Window", esc(`${analysisValue(wv.window?.count)} of ${analysisValue(wv.requested?.expected)} candles · ${stamp(wv.window?.first_t)} to ${stamp(wv.window?.last_t)}`))}
+    ${kv("Reason codes", wv.reason_codes?.length ? wv.reason_codes.map((code) => `<code>${esc(code)}</code>`).join(" ") : "none reported")}
+    ${analysisList(reasons)}
+    <div class="analysis-dimensions">${dimensions}</div>
+    ${"d1_convention" in wv ? kv("D1 convention", esc(analysisValue(wv.d1_convention))) : ""}`;
+}
+
+function timingMarkup(envelope) {
+  const { result, snapshot, service } = envelope;
+  const age = service?.data_age_at_evaluation_ms;
+  return `${kv("Market data retrieved (MT5)", `${esc(stampSeconds(snapshot?.bars_retrieved_at_utc))}${snapshot?.bars_served_from_cache ? " · repeat of a cached MT5 read" : ""}`)}
+    ${kv("Analysis covers candles up to", esc(result.as_of_utc ? stampSeconds(result.as_of_utc) : "No analysis window"))}
+    ${kv("Evaluated", `${esc(stampSeconds(result.evaluated_at_utc))}${service?.joined_in_flight ? " · shared computation (original evaluation time)" : ""}`)}
+    ${kv("Data age at evaluation (backend)", esc(typeof age === "number" && Number.isFinite(age) ? `${(age / 1000).toFixed(3)} s` : "—"))}
+    ${kv("Response served", esc(stampSeconds(envelope.served_at_utc)))}
+    ${kv("Received by this browser", '<span class="analysis-age">—</span>')}`;
+}
+
+function analysisFullMarkup() {
+  const status = analysisStatus();
+  if (status.state === "unsupported") return `<div class="analysis-head">${analysisStateBadge(status)}</div>${emptyState("Analysis not available for this timeframe", `Market analysis covers ${ANALYSIS_TIMEFRAMES.join(", ")}. No analysis is requested for ${prefs().selected_chart_timeframe}.`)}`;
+  if (status.state === "loading") return `<div class="analysis-head">${analysisStateBadge(status)}</div>${emptyState("Loading analysis", "Requesting a new backend evaluation…")}`;
+  if (status.state === "error") return `<div class="analysis-head">${analysisStateBadge(status)}</div>${emptyState("Analysis unavailable", `${status.error.reason}: ${status.error.message}`, "error-state")}`;
+  const envelope = status.envelope;
+  const { result } = envelope;
+  const decision = result.decision;
+  const explanation = stateExplanation(status);
+  const analysedWindow = result.inputs?.window;
+  const history = viewingHistory() ? " You are viewing older candles on the chart: this analysis does not describe the visible range." : "";
+  return `<div class="analysis-head">${analysisStateBadge(status)}${outcomeBadge(decision)}<span class="analysis-target">${esc(result.symbol ?? envelope.symbol)} · ${esc(result.timeframe ?? envelope.timeframe)}</span></div>
+    ${explanation ? `<p class="analysis-state-note ${esc(status.state)}">${esc(explanation)}</p>` : ""}
+    ${candidateNotice(decision)}
+    <p class="analysis-window-note">This analysis uses the latest backend evaluation window (${esc(analysisValue(analysedWindow?.count))} closed candles up to ${esc(result.as_of_utc ? stampSeconds(result.as_of_utc) : "—")}), not necessarily the candles visible on the chart.${esc(history)}</p>
+    <div class="analysis-grid">
+      <section class="analysis-section"><h3>Decision</h3>${kv("Outcome", outcomeBadge(decision))}${kv("Rule", esc(decision.rule))}${analysisList((decision.reasons ?? []).map(esc))}<p class="analysis-muted">${esc(result.note ?? "")}</p></section>
+      <section class="analysis-section"><h3>Time and freshness</h3>${timingMarkup(envelope)}</section>
+      <section class="analysis-section"><h3>Window validation (T4)</h3>${validationMarkup(envelope.window_validation)}</section>
+    </div>
+    <section class="analysis-section"><h3>Market conditions</h3>${conditionRows(result.market_condition)}</section>
+    <section class="analysis-section"><h3>Trend-continuation setup</h3>${setupMarkup(result.opportunity, decision)}</section>
+    <details class="analysis-details"><summary>Technical details</summary>
+      ${kv("Provenance", esc(`${analysisValue(result.inputs?.provenance?.mode)} · ${analysisValue(result.inputs?.provenance?.content_binding)}`))}
+      ${kv("Snapshot", esc(`${analysisValue(envelope.snapshot?.snapshot_id)} · ${analysisValue(envelope.snapshot?.upstream_status)} · ${analysisValue(envelope.snapshot?.source)}`))}
+      ${(result.gate?.reasons ?? []).length ? `<h4>Gate reasons</h4>${analysisList(result.gate.reasons.map(esc))}` : ""}
+      <h4>Limitations</h4>${analysisList((result.limitations ?? []).map(esc))}
+      <h4>Original T6 result (JSON, unmodified)</h4><pre class="analysis-json">${esc(JSON.stringify(result, null, 2))}</pre>
+      <h4>Window validation (JSON, unmodified)</h4><pre class="analysis-json">${esc(JSON.stringify(envelope.window_validation, null, 2))}</pre>
+    </details>`;
+}
+
+// Updates only the analysis containers (setInner skips unchanged markup); never the chart.
+function renderAnalysis() {
+  const compact = document.querySelector("#analysis-compact-body");
+  if (compact) setInner(compact, analysisCompactMarkup());
+  const full = document.querySelector("#analysis-full-body");
+  if (full) setInner(full, analysisFullMarkup());
+  renderAnalysisAge();
+}
+// The browser-receipt age changes every second; it is kept out of the panel markup so that
+// re-rendering never collapses open details.
+function renderAnalysisAge() {
+  const text = state.analysis && state.analysisKey === chartKey()
+    ? `${Math.max(0, Math.round((Date.now() - state.analysisReceivedAt) / 1000))} s ago`
+    : "—";
+  document.querySelectorAll(".analysis-age").forEach((element) => {
+    if (element.textContent !== text) element.textContent = text;
+  });
+}
+
+const analysisPanelCompact = () => `<section class="panel lower-panel analysis-panel" id="analysis-compact-panel"><div class="panel-head"><span class="panel-title">Analysis &amp; setups</span><span class="panel-meta">BACKEND ANALYSIS · READ-ONLY</span></div><div id="analysis-compact-body">${analysisCompactMarkup()}</div></section>`;
+const analysisPanelFull = () => `<section class="panel analysis-panel analysis-full" id="analysis-full-panel"><div class="panel-head"><span class="panel-title">Market analysis</span><span class="panel-meta">BACKEND T6 EVALUATION · READ-ONLY · NOT TRADE INSTRUCTIONS</span></div><div id="analysis-full-body">${analysisFullMarkup()}</div></section>`;
+
+function validAnalysisPayload(payload, symbol, timeframe) {
+  return payload && payload.symbol === symbol && payload.timeframe === timeframe
+    && typeof payload.result?.decision?.outcome === "string" && typeof payload.result?.decision?.rule === "string"
+    && payload.window_validation && typeof payload.window_validation === "object";
+}
+
+async function refreshAnalysis(poller) {
+  const symbol = prefs().selected_currency_pair;
+  const timeframe = prefs().selected_chart_timeframe;
+  if (!analysisActive()) return true;
+  const key = `${symbol}|${timeframe}`;
+  const seq = ++state.analysisSeq;
+  if (state.analysisKey !== key && state.analysis) { state.analysis = null; state.analysisKey = null; }
+  state.analysisInFlight = true;
+  renderAnalysis();
+  const query = new URLSearchParams({ symbol, timeframe });
+  const result = await fetchJson(`/api/market/analysis?${query}`, poller, POLL.analysisTimeoutMs);
+  if (seq === state.analysisSeq) state.analysisInFlight = false;
+  // An answer for an older request or another selection never replaces the shown analysis.
+  if (result.aborted || seq !== state.analysisSeq || key !== chartKey()) return "aborted";
+  const payload = result.payload;
+  const error = result.error ?? (validAnalysisPayload(payload, symbol, timeframe) ? null : malformed());
+  if (error) {
+    state.analysisError = { key, ...error }; // an earlier result stays, shown as not current
+  } else {
+    state.analysis = payload;
+    state.analysisKey = key;
+    state.analysisReceivedAt = Date.now();
+    state.analysisError = null;
+  }
+  renderAnalysis();
+  return !error;
+}
+
+// Start or pause analysis polling after a page or selection change.
+function syncAnalysisPolling() {
+  const poller = livePolling.analysis;
+  if (!livePolling.started) return;
+  if (!analysisActive()) poller.suspend();
+  else if (!poller.inFlight && poller.timer === null) poller.now();
+}
+
 // ---------------------------------------------------------------- other panels
 function calendarMarkup(limit = 4) {
   const calendar = state.data?.calendar ?? { events: [] };
@@ -873,10 +1282,6 @@ function healthMarkup() {
   }).join("")}</div>${planned.length ? `<div class="settings-note">Planned, not yet implemented: ${esc(planned.map((service) => service.name.replaceAll("_", " ")).join(", "))}.</div>` : ""}`;
 }
 
-function analysisPlaceholder() {
-  return emptyState("Analysis and trade setups", "Not available yet. Indicators, strategies, risk and position sizing are the next phases. No signals are shown or implied.");
-}
-
 function overviewPage() {
   return `${pageHeading("Overview", "Live market workspace", `<span id="market-heading-badge">${statusBadge(marketStatus())}</span>`)}
     ${quoteStripMarkup()}
@@ -887,7 +1292,7 @@ function overviewPage() {
     <div class="lower-grid">
       <section class="panel lower-panel"><div class="panel-head"><span class="panel-title">Market information</span><span class="panel-meta">DATA FRESHNESS</span></div>${marketInfoMarkup()}</section>
       <section class="panel lower-panel"><div class="panel-head"><span class="panel-title">Economic calendar</span><button class="text-link" data-page="calendar">View calendar</button></div>${calendarMarkup(4)}</section>
-      <section class="panel lower-panel"><div class="panel-head"><span class="panel-title">Analysis &amp; setups</span><span class="panel-meta">NEXT PHASES</span></div>${analysisPlaceholder()}</section>
+      ${analysisPanelCompact()}
     </div>`;
 }
 
@@ -903,7 +1308,7 @@ const PAGE_INFO = {
 };
 
 function dataPage(id) {
-  if (id === "charts") return `${pageHeading("Charts", "Candlesticks fetched from MT5 on demand")}${quoteStripMarkup()}${chartMarkup(true)}`;
+  if (id === "charts") return `${pageHeading("Charts", "Candlesticks fetched from MT5 on demand")}${quoteStripMarkup()}${chartMarkup(true)}${analysisPanelFull()}`;
   if (id === "markets") return `${pageHeading("Markets", "Live quotes from MT5", `<span id="market-heading-badge">${statusBadge(marketStatus())}</span>`)}
     <section class="panel"><div class="panel-head"><span class="panel-title">Currency pairs</span><span class="panel-meta">BID · ASK · SPREAD IN PIPS</span></div>${watchlistMarkup(true)}</section>
     <section class="panel markets-info"><div class="panel-head"><span class="panel-title">Market information</span><span class="panel-meta">CONNECTION &amp; TIME BASE</span></div>${marketInfoMarkup()}</section>`;
@@ -976,6 +1381,7 @@ function render() {
   if (state.page === "overview") main.innerHTML = overviewPage();
   else if (state.page === "settings") main.innerHTML = settingsPage();
   else main.innerHTML = dataPage(state.page);
+  renderAnalysisAge();
   drawChart();
 }
 
@@ -988,7 +1394,11 @@ async function savePreferences(values) {
     await loadDashboard();
     // Restart rather than wait: an answer for the old watchlist/selection must not land.
     if ("currency_pair_watchlist" in values) livePolling.quotes.restart();
-    if ("selected_currency_pair" in values || "selected_chart_timeframe" in values) livePolling.bars.restart();
+    if ("selected_currency_pair" in values || "selected_chart_timeframe" in values) {
+      livePolling.bars.restart();
+      livePolling.analysis.restart();
+      syncAnalysisPolling();
+    }
     if ("user_timezone" in values) renderChartArea();
   } catch (error) {
     showSaveMessage(`Could not save: ${error.message}`);
@@ -1044,16 +1454,24 @@ async function loadDashboard({ background = false } = {}) {
 // One poller per stream. A poll is scheduled only after the previous one has finished, so
 // requests never overlap or pile up. Failures back off exponentially (bounded); success
 // restores the normal interval. While the tab is hidden nothing is scheduled.
-function createPoller(name, run, interval) {
-  const poller = { name, timer: null, running: false, inFlight: false, pending: false, failures: 0, requests: 0, controller: null };
+// `active` (optional): while it returns false the poller neither requests nor schedules; call
+// now() when it may have become true again.
+function createPoller(name, run, interval, active = () => true) {
+  const poller = { name, timer: null, delay: null, scheduledAt: 0, running: false, inFlight: false, pending: false, failures: 0, requests: 0, controller: null };
   function schedule(delay) {
     clearTimeout(poller.timer);
     poller.timer = null;
-    if (poller.running && !document.hidden) poller.timer = setTimeout(tick, delay);
+    poller.delay = null;
+    if (poller.running && !document.hidden && active()) {
+      poller.timer = setTimeout(tick, delay);
+      poller.delay = delay;
+      poller.scheduledAt = Date.now();
+    }
   }
   async function tick() {
     poller.timer = null;
-    if (!poller.running || document.hidden) return;
+    poller.delay = null;
+    if (!poller.running || document.hidden || !active()) return;
     if (poller.inFlight) { poller.pending = true; return; }
     poller.inFlight = true;
     poller.pending = false;
@@ -1085,7 +1503,7 @@ function createPoller(name, run, interval) {
   };
   // Poll as soon as possible (after the current request, if one is running).
   poller.now = () => {
-    if (!poller.running || document.hidden) return;
+    if (!poller.running || document.hidden || !active()) return;
     if (poller.inFlight) poller.pending = true;
     else schedule(0);
   };
@@ -1097,6 +1515,14 @@ function createPoller(name, run, interval) {
   poller.suspend = () => {
     clearTimeout(poller.timer);
     poller.timer = null;
+    poller.delay = null;
+  };
+  // If the interval has become shorter (e.g. the chart turned LIVE), bring the pending poll
+  // forward to the new interval; never later, never an extra request.
+  poller.retime = () => {
+    if (poller.timer === null || poller.inFlight || poller.failures) return;
+    const wanted = interval();
+    if (poller.delay > wanted) schedule(Math.max(0, wanted - (Date.now() - poller.scheduledAt)));
   };
   return poller;
 }
@@ -1171,8 +1597,15 @@ async function refreshBars(poller) {
     state.barsKey = key;
     state.barsReceivedAt = Date.now();
     state.barsError = null;
+    const closed = state.bars.bars.filter((bar) => bar.complete === true).at(-1)?.t ?? null;
+    if (closed && state.analysisCandle?.key === key && state.analysisCandle.t && state.analysisCandle.t !== closed) {
+      livePolling.analysis.now(); // a new candle closed: evaluate again without waiting
+    }
+    if (closed) state.analysisCandle = { key, t: closed };
   }
   renderChartArea();
+  renderAnalysis();
+  livePolling.analysis.retime(); // a chart that just turned LIVE shortens the analysis interval
   return !error;
 }
 
@@ -1188,11 +1621,13 @@ function barsInterval() {
 }
 
 // Expiry needs no response to happen: re-render the moment stored data stops counting as live.
-let expiryShown = { quotes: false, bars: false };
+let expiryShown = { quotes: false, bars: false, analysis: "" };
 function checkExpiry() {
-  const now = { quotes: quotesExpired(), bars: barsExpired() };
+  const now = { quotes: quotesExpired(), bars: barsExpired(), analysis: analysisSignature() };
   if (now.quotes !== expiryShown.quotes) renderLive();
   else if (now.bars !== expiryShown.bars) renderChartArea();
+  if (now.analysis !== expiryShown.analysis) renderAnalysis();
+  else renderAnalysisAge();
   expiryShown = now;
 }
 
@@ -1200,11 +1635,12 @@ const livePolling = {
   quotes: createPoller("quotes", refreshQuotes, quotesInterval),
   bars: createPoller("bars", refreshBars, barsInterval),
   dashboard: createPoller("dashboard", () => loadDashboard({ background: true }), () => POLL.dashboardMs),
+  analysis: createPoller("analysis", refreshAnalysis, analysisInterval, analysisActive),
   started: false,
   expiryTimer: null,
   listeners: null,
 };
-const pollers = () => [livePolling.quotes, livePolling.bars, livePolling.dashboard];
+const pollers = () => [livePolling.quotes, livePolling.bars, livePolling.dashboard, livePolling.analysis];
 
 function onVisibilityChange() {
   if (document.hidden) {
@@ -1213,6 +1649,7 @@ function onVisibilityChange() {
     livePolling.quotes.now();
     livePolling.bars.now();
     livePolling.dashboard.now();
+    livePolling.analysis.now(); // no-op unless analysis applies to this page and timeframe
     checkExpiry();
   }
 }
@@ -1228,6 +1665,7 @@ function startLivePolling() {
   livePolling.quotes.start(0);
   livePolling.bars.start(0);
   livePolling.dashboard.start(POLL.dashboardMs);
+  livePolling.analysis.start(0);
   livePolling.expiryTimer = setInterval(checkExpiry, 1000);
 }
 
@@ -1244,8 +1682,8 @@ function stopLivePolling() {
 // Introspection for diagnostics and tests.
 function livePollingState() {
   const timers = pollers().filter((poller) => poller.timer !== null).length + (livePolling.expiryTimer ? 1 : 0);
-  const info = (poller) => ({ inFlight: poller.inFlight, requests: poller.requests, failures: poller.failures, scheduled: poller.timer !== null });
-  return { started: livePolling.started, timers, quotes: info(livePolling.quotes), bars: info(livePolling.bars), dashboard: info(livePolling.dashboard) };
+  const info = (poller) => ({ inFlight: poller.inFlight, requests: poller.requests, failures: poller.failures, scheduled: poller.timer !== null, delay: poller.delay });
+  return { started: livePolling.started, timers, quotes: info(livePolling.quotes), bars: info(livePolling.bars), dashboard: info(livePolling.dashboard), analysis: info(livePolling.analysis) };
 }
 
 // Kept for callers that ask for an immediate refresh.
@@ -1309,6 +1747,7 @@ document.addEventListener("change", (event) => {
 function showPage(page) {
   state.page = page;
   render();
+  syncAnalysisPolling();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 

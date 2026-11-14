@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import asdict
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -21,10 +21,17 @@ from johanna.domain.rules import UnimplementedRulesService
 from johanna.domain.signals import UnimplementedSignalService
 from johanna.instance_lock import InstanceLock
 from johanna.live_market import LiveMarketService
+from johanna.market_analysis import MarketAnalysisService
 from johanna.persistence import PREFERENCE_DEFAULTS, ApplicationStore
 from johanna.services import ServiceManager
 
 LOGGER = logging.getLogger("johanna.application")
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
 Task = Any  # Callable[[threading.Event], None]; kept loose for test injection
 
 
@@ -72,13 +79,23 @@ class JohannaApplication:
             clock=clock,
         )
         integrations = config.integrations
-        self.live_market = live_market or LiveMarketService(
-            terminal_path=integrations.mt5_terminal_path,
-            server_clock=ServerClock(
-                integrations.mt5_server_time_zone, integrations.mt5_server_time_shift_hours
-            ),
-            cached_bars=self._archived_bars,
-        )
+        if live_market is None:
+            # One clock callable for live data and analysis: it stamps MT5 retrieval times and
+            # supplies the T6 evaluation time, so T2's snapshot age compares like with like.
+            live_clock = _utc_now
+            live_market = LiveMarketService(
+                terminal_path=integrations.mt5_terminal_path,
+                server_clock=ServerClock(
+                    integrations.mt5_server_time_zone, integrations.mt5_server_time_shift_hours
+                ),
+                cached_bars=self._archived_bars,
+                clock=live_clock,
+            )
+        else:
+            # An injected live service (tests) keeps its own clock; analysis uses that callable.
+            live_clock = live_market._clock
+        self.live_market = live_market
+        self.market_analysis = MarketAnalysisService(self.live_market, clock=live_clock)
         if services is not None:
             configured_services = [self.store, *services.services]
         else:
