@@ -11,7 +11,7 @@ import ast
 import json
 import threading
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 
@@ -644,6 +644,7 @@ _WV_KEYS = {
     "verdict",
     "reason_codes",
     "dimensions",
+    "recency",
 }
 
 
@@ -733,7 +734,15 @@ def test_exactly_five_seconds_keeps_t2_eligibility(companion_spy) -> None:
 
 
 def test_clock_only_closure_exposes_the_provisional_reason(companion_spy) -> None:
-    env = _diagnostics(_provisional_bars)
+    # E1: a T1-consistent clock_only close: tick 30 s before the 13:00 close, read 90 s after it
+    # (tick 120 s old: verified); the service clock reads 0.8 s after the bars (as elsewhere).
+    read = datetime(2026, 11, 11, 13, 1, 30, tzinfo=UTC)
+    env = _diagnostics(
+        _provisional_bars,
+        age=(read + timedelta(seconds=0.2) - RETRIEVED).total_seconds() + 0.8,
+        tick_time=datetime(2026, 11, 11, 12, 59, 30, tzinfo=UTC),
+        read_at=read,
+    )
     wv = env["window_validation"]
     _assert_verbatim(wv, companion_spy["paired"][0]["validation"])
     assert wv["verdict"]["state"] == "provisional"
@@ -752,6 +761,7 @@ def test_all_seven_dimensions_and_omissions(companion_spy) -> None:
         "completeness",
         "snapshot",
         "session_candles",
+        "recency",  # E1
     }
     assert "candles" not in wv["window"]
     assert all(set(d) == {"status", "reasons"} for d in wv["dimensions"].values())

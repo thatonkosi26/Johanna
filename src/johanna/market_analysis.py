@@ -229,6 +229,8 @@ def _window_validation(validation: Any, result: Any) -> dict[str, Any]:
         }
         for name, dimension in (validation.get("dimensions") or {}).items()
     }
+    if "recency" in validation:  # E1: additive recency summary (pass states included)
+        out["recency"] = copy.deepcopy(validation["recency"])
     if "d1_convention" in validation:
         out["d1_convention"] = copy.deepcopy(validation["d1_convention"])
     return out

@@ -114,7 +114,7 @@ def test_price_reference_is_the_last_closed_candle_not_the_live_tick() -> None:
     odd_tick = {
         "bid": 9.0,
         "ask": 9.1,
-        "time_utc": "2026-11-11T14:00:30Z",
+        "time_utc": "2026-11-11T13:59:59.500000Z",  # E1: the fixture tick time (T1-consistent)
         "retrieved_at_utc": "2026-11-11T14:00:30Z",
     }
     moved = evaluate_market(*pipeline(bars, tick=odd_tick))

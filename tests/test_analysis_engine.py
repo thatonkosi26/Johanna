@@ -83,7 +83,8 @@ def test_warm_up_and_convergence_are_separate() -> None:
 
 
 def test_provisional_window_is_diagnostic_only() -> None:
-    bars = history(700)
+    # E1: ends 11:00 so the clock_only newest candle gets a T1-consistent, verified tick
+    bars = history(700, end=datetime(2026, 11, 11, 12, 0, tzinfo=UTC))
     bars[-1] = candle(
         bars[-1]["t"],
         o=bars[-1]["o"],

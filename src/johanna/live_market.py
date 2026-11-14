@@ -46,6 +46,7 @@ from typing import Any
 
 from johanna.adapters.base import MT5AdapterError
 from johanna.adapters.mt5 import MetaTrader5Adapter, MT5TimeBaseError, ServerClock
+from johanna.analysis.closure import COMPLETION_GRACE, classify_closure, is_complete  # noqa: F401
 from johanna.analysis.snapshot import DEFAULT_LIMITS, SnapshotLimits, build_snapshot
 
 LOGGER = logging.getLogger("johanna.live_market")
@@ -65,9 +66,8 @@ TIMEFRAME_SECONDS = {
 # (the first request for a symbol also resolves and selects it). A 200-pair watchlist is
 # fetched in 8 sequential batches.
 QUOTE_BATCH = 25
-# A bar whose close has passed by less than this, with no later tick yet, is still treated
-# as forming: the system clock may lead the server by up to the time-base tolerance.
-COMPLETION_GRACE = timedelta(seconds=60)
+# COMPLETION_GRACE (imported above) is the single authoritative closure grace: a bar whose
+# close has passed by less than this, with no later tick yet, is still treated as forming.
 DEFAULT_TERMINAL_IMAGE = "terminal64.exe"
 # Failures that mean the live connection (and therefore the clock check) is not current.
 _CONNECTION_LOSS = frozenset(
@@ -220,9 +220,7 @@ def bar_is_complete(close_utc: datetime, latest_tick_utc: datetime | None, now: 
     This errs toward "forming": e.g. Friday's D1 bar stays forming after the market closes
     until its 24 h have elapsed.
     """
-    if latest_tick_utc is not None and latest_tick_utc >= close_utc:
-        return True
-    return now >= close_utc + COMPLETION_GRACE
+    return is_complete(close_utc, latest_tick_utc, now)  # the shared T1 rule (analysis.closure)
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -438,13 +436,8 @@ class MT5Session:
                         )
                     )
                     continue
-                complete = bar_is_complete(close, latest_tick, now)
-                if not complete:
-                    closure = FORMING
-                elif latest_tick is not None and latest_tick >= close:
-                    closure = TICK_OBSERVED
-                else:
-                    closure = CLOCK_ONLY
+                closure = classify_closure(close, latest_tick, now)  # shared T1 rule
+                complete = closure != FORMING
                 bars.append(
                     _bar(row, close=close, complete=complete, closure=closure, issues=issues)
                 )

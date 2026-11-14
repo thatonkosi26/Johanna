@@ -888,7 +888,7 @@ const DIMENSION_LABELS = {
   location: "Support / resistance location",
   swing_structure: "Swing structure",
 };
-const VALIDATION_DIMENSIONS = ["price", "timestamps", "closure", "continuity", "completeness", "snapshot", "session_candles"];
+const VALIDATION_DIMENSIONS = ["price", "timestamps", "closure", "continuity", "completeness", "snapshot", "session_candles", "recency"];
 // Readable labels for known T4 / T2 codes; the actual code is always shown next to the label,
 // and an unknown code is shown as-is (never dropped).
 const VALIDATION_CODE_LABELS = {
@@ -926,6 +926,24 @@ const VALIDATION_CODE_LABELS = {
   legacy_time_basis: "Legacy server-time bars",
   bars_unavailable: "Bars unavailable",
   mt5_unavailable_cached: "MT5 unavailable: cached bars",
+  // E1 market-data recency
+  recency_reference_missing: "Recency cannot be established",
+  candle_after_reference: "Candle newer than the market data reference",
+  forming_candle_behind_tick: "Candle marked forming after its close (tick)",
+  forming_candle_past_clock_close: "Candle marked forming after its close (clock)",
+  tick_closure_unsupported: "Candle marked closed before the tick reached its close",
+  clock_closure_premature: "Candle marked closed before it could close",
+  closure_precedence_mismatch: "Candle closure label inconsistent",
+  closure_flag_mismatch: "Candle completion flag inconsistent",
+  close_time_mismatch: "Candle close time inconsistent",
+  closed_history_gap: "Missing closed candle inside the analysis window",
+  closed_history_gap_market_wide_unverified: "Missing closed candle, not verified as market-wide",
+  closed_history_behind_tick: "History stale: expected closed candles missing",
+  history_behind_clock: "History stale: expected candles missing (clock)",
+  recency_relies_on_unverified_closure: "Recent coverage relies on unverified candles",
+  expected_slot_excluded: "Expected latest candle analytically excluded",
+  tick_stale_in_open_session: "No recent ticks while the market should be open",
+  session_schedule_contradiction: "Market data contradicts the session schedule",
 };
 const codeLabel = (code) => VALIDATION_CODE_LABELS[code] ?? String(code ?? "unknown");
 const humanize = (value) => (value == null ? "—" : String(value).replaceAll("_", " "));

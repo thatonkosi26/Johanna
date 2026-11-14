@@ -99,6 +99,58 @@ def _required(slot: datetime, step: timedelta, closures: Sequence[Closure]) -> b
     return not _covered(slot, slot + step, spans)
 
 
+def slot_required(slot: datetime, step: timedelta, closures: Sequence[Closure]) -> bool:
+    """Public form of the required-slot rule (E1 recency uses T3's exact definition).
+
+    ``closures`` must include every closure overlapping ``[slot, slot + step)`` (e.g. from
+    ``closures_overlapping`` over a range containing the slot)."""
+    return _required(slot, step, closures)
+
+
+def _merged(spans: Iterable[tuple[datetime, datetime]]) -> list[tuple[datetime, datetime]]:
+    merged: list[list[datetime]] = []
+    for low, high in sorted(spans):
+        if merged and low <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], high)
+        else:
+            merged.append([low, high])
+    return [(low, high) for low, high in merged]
+
+
+def rollover_spans(
+    start: datetime, end: datetime, config: SessionConfig = EXNESS_T0_PROVISIONAL
+) -> list[tuple[datetime, datetime]]:
+    """The configured daily rollover windows (UTC) overlapping ``[start, end)``."""
+    tz = config.tz
+    day = start.astimezone(tz).date() - timedelta(days=1)
+    last = end.astimezone(tz).date() + timedelta(days=1)
+    spans = []
+    while day <= last:
+        low = datetime.combine(day, config.rollover_start, tzinfo=tz).astimezone(UTC)
+        high = datetime.combine(day, config.rollover_end, tzinfo=tz).astimezone(UTC)
+        if low < end and high > start:
+            spans.append((low, high))
+        day += timedelta(days=1)
+    return spans
+
+
+def scheduled_open_seconds(
+    start: datetime, end: datetime, config: SessionConfig = EXNESS_T0_PROVISIONAL
+) -> float:
+    """Seconds of ``(start, end]`` the schedule expects ticks in: outside configured closures,
+    their reopen tolerance and the daily rollover window. 0 when ``end <= start``."""
+    if end <= start:
+        return 0.0
+    quiet = [(c.start, c.reopen_deadline) for c in closures_overlapping(start, end, config)]
+    quiet += rollover_spans(start, end, config)
+    open_seconds = (end - start).total_seconds()
+    for low, high in _merged(quiet):
+        low, high = max(low, start), min(high, end)
+        if high > low:
+            open_seconds -= (high - low).total_seconds()
+    return max(open_seconds, 0.0)
+
+
 def _peer_times(
     peers: Mapping[str, Iterable[Any]] | None,
 ) -> dict[str, tuple[set, datetime, datetime]]:

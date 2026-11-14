@@ -228,7 +228,7 @@ def _sync_window(v, a, **changes):
         ("P10", lambda s, v, a: s.update(snapshot_version=2)),
         (
             "P10",
-            lambda s, v, a: v.update(window_version=2) or a.update(validation=copy.deepcopy(v)),
+            lambda s, v, a: v.update(window_version=3) or a.update(validation=copy.deepcopy(v)),
         ),
     ],
 )
