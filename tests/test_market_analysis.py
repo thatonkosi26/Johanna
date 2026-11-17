@@ -152,6 +152,7 @@ def test_envelope_shape_and_snapshot_summary() -> None:
         "snapshot",
         "window_validation",  # additive T4 diagnostic field
         "result",
+        "overlay",  # additive visualisation payload (overlay V1 phase 2)
     }
     assert set(envelope["service"]) == {
         "joined_in_flight",

@@ -2,9 +2,10 @@ const NAV_ITEMS = [
   ["overview", "Overview", "M3 3h7v7H3zM14 3h7v5h-7zM14 11h7v10h-7zM3 13h7v8H3z"],
   ["charts", "Charts", "M3 3v18h18M7 15l4-4 4 3 6-8"],
   ["markets", "Markets", "M4 19V5m0 14h17M8 16V9m4 7V6m4 10v-5m4 5V4"],
+  ["account", "Account & Broker", "M3 7h18v12H3zM3 11h18M7 15h4M16 3v4M8 3v4"],
   ["calendar", "Economic Calendar", "M4 5h16v16H4zM8 3v4m8-4v4M4 10h16M8 14h2m4 0h2m-8 4h2"],
   ["news", "News", "M5 4h14a2 2 0 0 1 2 2v14H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm3 5h8m-8 4h8m-8 4h5"],
-  ["signals", "Trading Signals", "M3 17h4l3-10 4 12 3-8h4"],
+  ["signals", "Decisions", "M3 17h4l3-10 4 12 3-8h4"],
   ["rules", "Trading Rules", "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"],
   ["risk", "Risk Management", "M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Zm-3-11 2 2 4-4"],
   ["positions", "Positions", "M4 7h16M4 12h10M4 17h7"],
@@ -34,6 +35,16 @@ const POLL = {
   analysisMs: 30000, // chart LIVE
   quietAnalysisMs: 60000, // chart not LIVE
   analysisTimeoutMs: 45000,
+  // Account & Broker page (/api/account/*): only while that page is open.
+  accountMs: 10000,
+  quietAccountMs: 30000, // not LIVE (MT5 unavailable or answering from cache)
+  accountTimeoutMs: 20000,
+  // Risk Management page (/api/risk/proposal): a new T6 + risk evaluation per request.
+  riskMs: 30000,
+  riskTimeoutMs: 45000,
+  // Decisions page (/api/journal/decisions): reads the journal only; no MT5 access.
+  decisionsMs: 30000,
+  decisionsTimeoutMs: 20000,
 };
 // A stored response stops counting as live when no fresh one has arrived for this long,
 // whatever the reason (request failed, hung, backend gone, tab was hidden).
@@ -71,6 +82,15 @@ const state = {
   chartDraws: 0, // canvas repaints (unchanged data is not repainted)
   view: null, // chart viewport (zoom, pan, price scale) for one pair/timeframe; see chartView()
   chartViewport: null, // the candle range last drawn
+  // Analysis Overlay (Charts page only): transient, in memory, off by default, never saved.
+  overlay: { enabled: false, draws: 0, last: null, menuOpen: false, annotations: null, modelCache: null, modelRuns: 0 },
+  // Account & Broker page: last successful /api/account/* answers (never shown as live once a
+  // refresh fails or they expire; see accountView()).
+  account: { summary: null, instruments: null, receivedAt: 0, error: null, seq: 0 },
+  // Risk Management page: last successful /api/risk/proposal answer and its selection key.
+  risk: { payload: null, key: null, receivedAt: 0, error: null, seq: 0 },
+  // Decisions page: last successful /api/journal/decisions answer.
+  decisions: { payload: null, receivedAt: 0, error: null, seq: 0 },
   // Market analysis: the last *successful* /api/market/analysis response and its request
   // bookkeeping. Kept apart from chart and viewport state; displayed via analysisStatus().
   analysis: null,
@@ -385,8 +405,9 @@ function renderLive() {
 function chartMarkup(full = false) {
   const pairOptions = (prefs().currency_pair_watchlist ?? []).map((symbol) => `<option value="${esc(symbol)}" ${symbol === prefs().selected_currency_pair ? "selected" : ""}>${esc(symbol)}</option>`).join("");
   const tfOptions = TIMEFRAMES.map((tf) => `<option value="${tf}" ${tf === prefs().selected_chart_timeframe ? "selected" : ""}>${tf}</option>`).join("");
-  const controls = `<select class="select" id="pair-select" aria-label="Selected currency pair" ${pairOptions ? "" : "disabled"}>${pairOptions || "<option>No pair in watchlist</option>"}</select><select class="select" id="timeframe-select" aria-label="Chart timeframe">${tfOptions}</select>`;
-  return `<section class="panel chart-panel ${full ? "chart-large" : ""}"><div class="panel-head"><div class="chart-title-main"><span class="chart-symbol">${esc(prefs().selected_currency_pair)}</span><span class="chart-timeframe">${esc(prefs().selected_chart_timeframe)}</span><span id="chart-status">${chartStatusMarkup()}</span></div><div class="chart-tools">${controls}</div></div><div id="chart-notice">${chartNoticeMarkup()}</div><div class="chart-canvas-wrap"><canvas class="chart-canvas" id="price-chart" aria-label="Candlestick chart for ${esc(prefs().selected_currency_pair)}"></canvas><div class="chart-view-controls" id="chart-view-controls"></div><div class="chart-empty" id="chart-empty">${chartEmptyMarkup()}</div></div><div class="chart-hint">Wheel: zoom · Drag: pan · Drag price axis: price scale (double-click resets) · Go Live: back to the latest candles</div><div class="panel-foot" id="chart-foot">${chartFootMarkup()}</div></section>`;
+  const overlayToggle = full ? `${overlayToggleMarkup()}${annotationMenuMarkup()}` : "";
+  const controls = `${overlayToggle}<select class="select" id="pair-select" aria-label="Selected currency pair" ${pairOptions ? "" : "disabled"}>${pairOptions || "<option>No pair in watchlist</option>"}</select><select class="select" id="timeframe-select" aria-label="Chart timeframe">${tfOptions}</select>`;
+  return `<section class="panel chart-panel ${full ? "chart-large" : ""}"><div class="panel-head"><div class="chart-title-main"><span class="chart-symbol">${esc(prefs().selected_currency_pair)}</span><span class="chart-timeframe">${esc(prefs().selected_chart_timeframe)}</span><span id="chart-status">${chartStatusMarkup()}</span></div><div class="chart-tools">${controls}</div></div><div id="chart-notice">${chartNoticeMarkup()}</div>${full ? `<div class="overlay-panel" id="overlay-panel"${state.overlay.enabled ? "" : " hidden"}></div>` : ""}<div class="chart-canvas-wrap"><canvas class="chart-canvas" id="price-chart" aria-label="Candlestick chart for ${esc(prefs().selected_currency_pair)}"></canvas>${full ? `<canvas class="overlay-canvas" id="analysis-overlay" aria-hidden="true"${state.overlay.enabled ? "" : " hidden"}></canvas>` : ""}<div class="chart-view-controls" id="chart-view-controls"></div><div class="chart-empty" id="chart-empty">${chartEmptyMarkup()}</div></div><div class="chart-hint">Wheel: zoom · Drag: pan · Drag price axis: price scale (double-click resets) · Go Live: back to the latest candles</div><div class="panel-foot" id="chart-foot">${chartFootMarkup()}</div></section>`;
 }
 
 const chartKey = () => `${prefs().selected_currency_pair}|${prefs().selected_chart_timeframe}`;
@@ -662,7 +683,10 @@ function drawChart() {
   const ctx = canvas.getContext("2d");
   ctx.scale(ratio, ratio);
   ctx.clearRect(0, 0, width, height);
-  if (!viewport) return;
+  if (!viewport) {
+    if (state.overlay.enabled) drawOverlay();
+    return;
+  }
   const style = getComputedStyle(document.documentElement);
   const color = (name) => style.getPropertyValue(name).trim();
   const digits = data.digits ?? 5;
@@ -741,6 +765,7 @@ function drawChart() {
     ctx.fillStyle = color("--bg");
     ctx.fillText(lineValue.toFixed(digits), width - pad.right + 6, ly + 3);
   }
+  if (state.overlay.enabled) drawOverlay(); // after every chart repaint; never otherwise
 }
 
 // ---------------------------------------------------------------- chart interaction
@@ -850,6 +875,780 @@ document.addEventListener("dblclick", (event) => {
 // Introspection for diagnostics and tests: the range currently drawn.
 function chartViewState() {
   return state.chartViewport ? { ...state.chartViewport } : null;
+}
+
+// ---------------------------------------------------------------- analysis overlay (V1)
+// A second canvas layered over #price-chart (pointer-events: none) showing the backend's existing
+// analysis on the Charts page. Presentation only: every value comes from the /api/market/analysis
+// envelope; nothing is calculated, inferred or classified here. overlayModel() validates the
+// envelope against the displayed chart and fails closed; drawOverlay() renders only what the
+// model accepted, with the chart's own recorded geometry. Disabled: nothing here runs.
+const OVERLAY_MODE_LABELS = {
+  current: "CURRENT", provisional: "PROVISIONAL", outdated: "OUTDATED", unavailable: "ANALYSIS UNAVAILABLE", none: "NO OVERLAY",
+};
+const OVERLAY_MODE_CLASS = { current: "good", provisional: "warn", outdated: "warn", unavailable: "bad" };
+const OVERLAY_EMA = { EMA20: { color: "--accent", dash: [] }, EMA50: { color: "--amber", dash: [] }, EMA200: { color: "--muted", dash: [5, 3] } };
+const OVERLAY_CHECKS = ["TC3_long_term", "TC4_pullback", "TC5_resumption"];
+const OVERLAY_STATUS_HEIGHT = 15; // px: the analysis-state label box
+const OVERLAY_LABEL_GAP = 14; // px: pinned zone labels keep this baseline distance below it
+// Pivot labels come only from the backend's swing state (features.swings.state).
+const SWING_STATE_LABELS = {
+  higher_highs_higher_lows: { H_last: "HH", L_last: "HL" },
+  lower_highs_lower_lows: { H_last: "LH", L_last: "LL" },
+};
+const PIVOT_ROLE_LABELS = { H_prev: "prev H", L_prev: "prev L", H_last: "H", L_last: "L" }; // compact
+
+// Annotation visibility (per layer). Presentation preferences only: stored in this browser's
+// localStorage, never sent to the backend; hiding a layer never removes its analysis data.
+const ANNOTATION_STORAGE_KEY = "johanna.chart.annotationPreferences.v1";
+const ANNOTATION_GROUPS = [
+  ["Trend indicators", [["ema20", "EMA 20"], ["ema50", "EMA 50"], ["ema200", "EMA 200"]]],
+  ["Market structure", [["swingHighs", "Swing highs"], ["swingLows", "Swing lows"], ["decisionPivots", "Decision pivots"]]],
+  ["Price levels", [["supportZones", "Support zones"], ["resistanceZones", "Resistance zones"], ["containsZones", "Zones containing current price"]]],
+  ["Setup annotations", [["pullback", "Pullback region"], ["tc3", "TC3 marker"], ["tc4", "TC4 marker"], ["tc5", "TC5 marker"], ["tc4Outline", "TC4 outline"]]],
+  ["Analysis context", [["statusLabel", "Analysis status label"], ["endpointMarker", "Latest analysed candle"]]],
+];
+const ANNOTATION_KEYS = ANNOTATION_GROUPS.flatMap(([, items]) => items.map(([key]) => key));
+const EMA_ANNOTATION = { EMA20: "ema20", EMA50: "ema50", EMA200: "ema200" };
+const CHECK_ANNOTATION = { TC3_long_term: "tc3", TC4_pullback: "tc4", TC5_resumption: "tc5" };
+
+// Defaults (all on) overlaid with valid stored booleans; unknown keys and malformed values are
+// ignored. Storage that throws leaves the preferences working for this session only.
+function annotationState() {
+  if (state.overlay.annotations) return state.overlay.annotations;
+  const prefs = Object.fromEntries(ANNOTATION_KEYS.map((key) => [key, true]));
+  let storage = "ok";
+  let raw = null;
+  try {
+    raw = window.localStorage.getItem(ANNOTATION_STORAGE_KEY);
+  } catch {
+    storage = "unavailable";
+  }
+  if (raw != null) {
+    try {
+      const stored = JSON.parse(raw);
+      if (stored && typeof stored === "object" && !Array.isArray(stored)) {
+        for (const key of ANNOTATION_KEYS) if (typeof stored[key] === "boolean") prefs[key] = stored[key];
+      }
+    } catch {
+      // malformed: defaults stay; the next change rewrites a valid record
+    }
+  }
+  state.overlay.annotations = { prefs, storage };
+  return state.overlay.annotations;
+}
+const annotationOn = (key) => annotationState().prefs[key] !== false;
+
+function saveAnnotationState() {
+  const record = annotationState();
+  try {
+    window.localStorage.setItem(ANNOTATION_STORAGE_KEY, JSON.stringify(record.prefs));
+    record.storage = "ok";
+  } catch {
+    record.storage = "unavailable"; // keep working for this session
+  }
+}
+
+function setAnnotations(changes) {
+  const record = annotationState();
+  for (const [key, value] of Object.entries(changes)) if (ANNOTATION_KEYS.includes(key)) record.prefs[key] = Boolean(value);
+  saveAnnotationState();
+  document.querySelectorAll("[data-annotation-key]").forEach((box) => { box.checked = record.prefs[box.dataset.annotationKey] !== false; });
+  const note = document.querySelector("#annotation-storage-note");
+  if (note) note.hidden = record.storage !== "unavailable";
+  if (state.overlay.enabled) drawOverlay(); // redraw only: the model is reused
+}
+
+function setAnnotationMenu(open) {
+  state.overlay.menuOpen = Boolean(open);
+  const panel = document.querySelector("#annotation-panel");
+  const button = document.querySelector("[data-annotation-menu]");
+  if (panel) panel.hidden = !state.overlay.menuOpen;
+  if (button) button.setAttribute("aria-expanded", String(state.overlay.menuOpen));
+}
+
+function annotationMenuMarkup() {
+  const { prefs, storage } = annotationState();
+  const groups = ANNOTATION_GROUPS.map(([title, items]) => `<fieldset class="annotation-group"><legend>${esc(title)}</legend>${items
+    .map(([key, label]) => `<label class="annotation-option"><input type="checkbox" data-annotation-key="${key}"${prefs[key] !== false ? " checked" : ""}> ${esc(label)}</label>`)
+    .join("")}</fieldset>`).join("");
+  return `<div class="annotation-menu"><button type="button" class="annotation-button" data-annotation-menu aria-haspopup="true" aria-expanded="${state.overlay.menuOpen}" aria-controls="annotation-panel">Annotations</button><div class="annotation-panel" id="annotation-panel" role="group" aria-label="Chart annotations"${state.overlay.menuOpen ? "" : " hidden"}><div class="annotation-actions"><button type="button" data-annotation-all="1">Select all</button><button type="button" data-annotation-all="0">Clear all</button></div>${groups}<p class="annotation-note" id="annotation-storage-note"${storage === "unavailable" ? "" : " hidden"}>This browser can't save these choices; they apply to this session only.</p><p class="annotation-note">Shown only while Analysis Overlay is on.</p></div></div>`;
+}
+const isoMs = (iso) => (typeof iso === "string" ? Date.parse(iso) : NaN);
+const isFiniteNumber = (value) => typeof value === "number" && Number.isFinite(value);
+
+function overlayToggleMarkup() {
+  const on = state.overlay.enabled;
+  return `<div class="overlay-toggle" role="group" aria-label="Chart mode"><button type="button" class="overlay-mode" data-overlay-mode="clean" aria-pressed="${!on}">Clean chart</button><button type="button" class="overlay-mode" data-overlay-mode="analysis" aria-pressed="${on}">Analysis Overlay</button></div>`;
+}
+
+// Toggle (in memory only: no request, no preference write, no new listener or timer).
+function setOverlay(enabled) {
+  state.overlay.enabled = Boolean(enabled);
+  document.querySelectorAll("[data-overlay-mode]").forEach((button) => {
+    button.setAttribute("aria-pressed", String((button.dataset.overlayMode === "analysis") === state.overlay.enabled));
+  });
+  const panel = document.querySelector("#overlay-panel");
+  const canvas = document.querySelector("#analysis-overlay");
+  if (panel) panel.hidden = !state.overlay.enabled;
+  if (canvas) canvas.hidden = !state.overlay.enabled;
+  if (state.overlay.enabled) drawOverlay();
+  else clearOverlay();
+}
+
+function clearOverlay() {
+  const canvas = document.querySelector("#analysis-overlay");
+  if (canvas) {
+    canvas.width = canvas.width; // clears the bitmap
+    canvas.__signature = null;
+  }
+  const panel = document.querySelector("#overlay-panel");
+  if (panel) setInner(panel, "");
+  state.overlay.last = null;
+}
+
+// Validate an analysis envelope against the displayed chart and build the visual model.
+// Pure: (status from analysisStatus(), chartData(), selected pair/timeframe) -> model.
+// Fails closed: any inconsistency gives { layers: null } and a reason; nothing is drawn.
+function overlayModel(status, data, selection) {
+  const select = selection ?? { symbol: prefs().selected_currency_pair, timeframe: prefs().selected_chart_timeframe };
+  const fail = (mode, reason) => ({ mode, reason, layers: null, skipped: [], envelope: status?.envelope ?? null });
+  if (!data?.bars?.length) return fail("none", "No chart data is loaded.");
+  const kind = status?.state;
+  if (kind === "unsupported") return fail("none", "Analysis supports H1, H4 and D1 only.");
+  if (kind === "loading") return fail("none", "Waiting for the analysis of this pair and timeframe.");
+  if (kind === "error") return fail("unavailable", "The analysis could not be loaded.");
+  const envelope = status?.envelope;
+  const result = envelope?.result;
+  if (!result) return fail("none", "No analysis is available.");
+  const wv = envelope.window_validation ?? {};
+  const inputs = result.inputs ?? {};
+  // Identity: the analysis must be for exactly this chart.
+  if (envelope.symbol !== select.symbol || result.symbol !== select.symbol || data.symbol !== select.symbol) {
+    return fail("unavailable", "The analysis is for a different symbol than the chart.");
+  }
+  if (envelope.timeframe !== select.timeframe || result.timeframe !== select.timeframe || data.timeframe !== select.timeframe) {
+    return fail("unavailable", "The analysis is for a different timeframe than the chart.");
+  }
+  if (result.broker_symbol && data.broker_symbol && result.broker_symbol !== data.broker_symbol) {
+    return fail("unavailable", "The broker symbol differs between the chart and the analysis.");
+  }
+  const ids = [envelope.snapshot?.snapshot_id, inputs.snapshot_id, wv.snapshot_id];
+  if (!ids[0] || ids.some((id) => id !== ids[0])) {
+    return fail("unavailable", "Snapshot identity differs between the snapshot, its validation and the analysis.");
+  }
+  if (wv.available !== true) return fail("unavailable", "Window validation is not available for this analysis.");
+  if (inputs.provenance?.passed !== true) return fail("unavailable", "The analysis provenance checks did not pass.");
+  const win = inputs.window ?? {};
+  const first = isoMs(win.first_t), last = isoMs(win.last_t);
+  if (!Number.isFinite(first) || !Number.isFinite(last) || wv.window?.first_t !== win.first_t || wv.window?.last_t !== win.last_t) {
+    return fail("unavailable", "The analysis window is missing or differs from its validation.");
+  }
+  // State (analysisStatus(): R1 unavailable, R2 provisional, R3-R7 current or outdated).
+  if (kind === "unavailable") {
+    const reason = wv.verdict?.reasons?.[0];
+    return fail("unavailable", reason ? `${codeLabel(reason.code)} (${reason.code}).` : `${result.decision?.reasons?.[0] ?? "The analysis was rejected"}.`);
+  }
+  if (kind === "outdated") return fail("outdated", `Overlay cleared: ${(status.reasons ?? []).join("; ") || "the analysis is outdated"}.`);
+  if (kind !== "current" && kind !== "provisional") return fail("none", "No displayable analysis.");
+  const verdict = wv.verdict?.state;
+  if ((kind === "current" && verdict !== "accepted") || (kind === "provisional" && verdict !== "provisional")) {
+    return fail("unavailable", `The window validation verdict (${verdict}) does not match the analysis state.`);
+  }
+  const provisional = kind === "provisional";
+  // Exact timestamp mapping onto the chart's own (drawable) candles, inside the analysis window.
+  const bars = data.bars.filter(drawable);
+  const indexOf = new Map(bars.map((bar, i) => [isoMs(bar.t), i]));
+  const inWindow = (t) => { const ms = isoMs(t); return Number.isFinite(ms) && ms >= first && ms <= last; };
+  const at = (t) => (inWindow(t) ? indexOf.get(isoMs(t)) ?? null : null);
+  const endpoint = at(win.last_t);
+  if (endpoint == null) return fail("unavailable", "The last analysed candle is not in the chart data.");
+  const features = result.features ?? {};
+  const rows = Array.isArray(features.pullback?.candles) ? features.pullback.candles : [];
+  for (const row of rows) { // chart and analysis come from separate MT5 reads: closed candles must agree
+    const i = at(row.t);
+    if (i == null) continue;
+    if (bars[i].l !== row.low || bars[i].h !== row.high || bars[i].c !== row.close) {
+      return fail("unavailable", `The chart candle ${row.t} differs from the analysed candle.`);
+    }
+  }
+  const skipped = [];
+  const layers = { endpoint: { index: endpoint, t: win.last_t }, ema: [], pullback: null, pivots: [], zones: null, checks: [] };
+  for (const name of Object.keys(OVERLAY_EMA)) {
+    const entry = features.latest?.[name];
+    if (entry && entry.usable === true && entry.status === "available" && isFiniteNumber(entry.value) && entry.t === win.last_t) {
+      layers.ema.push({ name, value: entry.value, t: entry.t, index: endpoint });
+    } else {
+      skipped.push({ kind: "ema", name, reason: !entry ? "not provided" : entry.t !== win.last_t ? "not at the last analysed candle" : entry.reason || entry.status || "not usable" });
+    }
+  }
+  if (!provisional && features.pullback?.usable === true && rows.length) {
+    const mapped = rows.map((row) => ({ t: row.t, index: at(row.t), low: row.low, high: row.high, close: row.close, ema20: isFiniteNumber(row.ema20) ? row.ema20 : null, ema50: isFiniteNumber(row.ema50) ? row.ema50 : null }));
+    const missing = mapped.filter((row) => row.index == null).length;
+    if (missing) skipped.push({ kind: "pullback", reason: `${missing} pullback candle(s) outside the window or not on the chart` });
+    const shown = mapped.filter((row) => row.index != null);
+    if (shown.length) layers.pullback = { rows: shown };
+  }
+  const dims = result.market_condition?.dimensions ?? {};
+  const swings = features.swings;
+  if (!provisional && swings?.usable === true && dims.swing_structure?.trusted === true) {
+    const labels = SWING_STATE_LABELS[swings.state] ?? {};
+    for (const pivot of swings.pivots ?? []) {
+      const i = at(pivot.pivot_t);
+      const confirmed = isoMs(pivot.confirmed_at_utc) <= isoMs(result.as_of_utc);
+      if (i == null || !confirmed || !isFiniteNumber(pivot.price) || !["high", "low"].includes(pivot.type)) {
+        skipped.push({ kind: "pivot", name: pivot.role, reason: "outside the window, not on the chart or not confirmed" });
+        continue;
+      }
+      layers.pivots.push({ role: pivot.role, type: pivot.type, price: pivot.price, t: pivot.pivot_t, confirmed_at_utc: pivot.confirmed_at_utc, index: i, label: labels[pivot.role] ?? PIVOT_ROLE_LABELS[pivot.role] ?? pivot.role });
+    }
+  }
+  const location = dims.location;
+  if (location && Array.isArray(location.zones)) {
+    const zones = [];
+    location.zones.forEach((zone, n) => {
+      const reason = overlayZoneProblem(zone);
+      if (reason) skipped.push({ kind: "zone", name: typeof zone?.id === "string" && zone.id ? zone.id : `zone #${n + 1}`, reason });
+      else zones.push(zone);
+    });
+    layers.zones = { trusted: location.trusted === true && !provisional, nearest: [location.nearest_below?.id, location.nearest_above?.id].filter(Boolean), zones };
+  } else {
+    skipped.push({ kind: "zones", reason: "location not provided" });
+  }
+  if (!provisional) {
+    for (const check of result.opportunity?.checklist ?? []) {
+      if (!OVERLAY_CHECKS.includes(check.id) || !check.t) continue;
+      const i = at(check.t);
+      if (i == null) { skipped.push({ kind: "check", name: check.id, reason: "candle outside the window or not on the chart" }); continue; }
+      layers.checks.push({ id: check.id, result: check.result, t: check.t, index: i, observed: check.observed, threshold: check.threshold, comparison: check.comparison, detail: check.detail, source: check.source });
+    }
+  }
+  // Phase 2: historical EMA lines and confirmed swings from envelope.overlay (T5 values, copied
+  // by the backend). Any inconsistency suppresses only these layers, with a reason.
+  layers.lines = [];
+  layers.swings = [];
+  layers.coverage = null;
+  const payload = envelope.overlay;
+  const payloadProblem = overlayPayloadProblem(payload, { id: ids[0], select, result, win, verdict });
+  if (payloadProblem) {
+    skipped.push({ kind: "overlay", reason: payloadProblem });
+  } else {
+    const coverage = payload.coverage;
+    const covFirst = isoMs(coverage.first_t), covLast = isoMs(coverage.last_t);
+    const inCoverage = (t) => { const ms = isoMs(t); return Number.isFinite(ms) && ms >= covFirst && ms <= covLast; };
+    layers.coverage = { first_t: coverage.first_t, last_t: coverage.last_t, count: coverage.count, truncated: coverage.truncated === true };
+    // The chart loads BAR_COUNT bars including the forming candle, so the coverage's oldest
+    // analysed candle(s) may precede the chart's first loaded candle: expected, not a data fault.
+    const chartFirst = isoMs(bars[0]?.t);
+    const beforeChart = (t) => inCoverage(t) && isoMs(t) < chartFirst;
+    for (const name of Object.keys(OVERLAY_EMA)) {
+      const series = payload.ema?.[name];
+      if (!series || !Array.isArray(series.points)) { skipped.push({ kind: "ema_line", name, reason: "series not provided" }); continue; }
+      const convergedFrom = isoMs(series.converged_from_t);
+      const points = [];
+      let dropped = 0, older = 0;
+      for (const point of series.points) {
+        const [t, value] = Array.isArray(point) ? point : [];
+        const i = inCoverage(t) ? at(t) : null; // exact chart candle inside the window, or nothing
+        if (i == null) { if (beforeChart(t)) older += 1; else dropped += 1; continue; }
+        points.push({ t, index: i, value: isFiniteNumber(value) ? value : null, converged: Number.isFinite(convergedFrom) && isoMs(t) >= convergedFrom });
+      }
+      if (dropped) skipped.push({ kind: "ema_line", name, reason: `${dropped} point(s) outside the coverage or not on the chart` });
+      if (older) skipped.push({ kind: "chart_range", name, expected: true, reason: `${older} point(s) older than the chart's first loaded candle` });
+      points.sort((a, b) => a.index - b.index);
+      layers.lines.push({ name, status: series.status, points });
+    }
+    if (!provisional && payload.swings?.status === "available" && payload.swings?.trusted === true && dims.swing_structure?.trusted === true) {
+      const labelled = new Set(layers.pivots.map((pivot) => `${pivot.type}@${pivot.t}`));
+      for (const swing of payload.swings.confirmed ?? []) {
+        if (swing && beforeChart(swing.pivot_t) && at(swing.pivot_t) == null) {
+          skipped.push({ kind: "chart_range", name: swing.id ?? "swing", expected: true, reason: "pivot older than the chart's first loaded candle" });
+          continue;
+        }
+        const problem = overlaySwingProblem(swing, inCoverage, at, win.last_t, result.as_of_utc);
+        if (problem) { skipped.push({ kind: "swing", name: swing?.id ?? "swing", reason: problem }); continue; }
+        if (labelled.has(`${swing.type}@${swing.pivot_t}`)) continue; // already a labelled decision pivot
+        layers.swings.push({ id: swing.id, type: swing.type, price: swing.price, t: swing.pivot_t, confirmed_at_utc: swing.confirmed_at_utc, index: at(swing.pivot_t) });
+      }
+    }
+  }
+  return { mode: provisional ? "provisional" : "current", reason: provisional ? "Provisional analysis: diagnostic only, nothing trusted." : null, layers, skipped, envelope };
+}
+
+// Why envelope.overlay cannot be used with this analysis and chart (null when it can).
+function overlayPayloadProblem(payload, { id, select, result, win, verdict }) {
+  if (!payload || typeof payload !== "object") return "no overlay payload in this analysis";
+  if (payload.status !== "available" && payload.status !== "partial") {
+    return `overlay ${payload.status ?? "status missing"}${payload.reasons?.length ? `: ${payload.reasons.join("; ")}` : ""}`;
+  }
+  if (payload.snapshot_id !== id) return "overlay snapshot differs from the analysis";
+  if (payload.symbol !== select.symbol || payload.timeframe !== select.timeframe) return "overlay symbol or timeframe differs from the chart";
+  if (payload.broker_symbol !== result.broker_symbol) return "overlay broker symbol differs from the analysis";
+  if (payload.window?.first_t !== win.first_t || payload.window?.last_t !== win.last_t || payload.last_analysed_t !== win.last_t) {
+    return "overlay window differs from the analysis window";
+  }
+  if (payload.validation_verdict !== verdict) return "overlay validation verdict differs from the analysis";
+  if (payload.as_of_utc !== result.as_of_utc) return "overlay as-of time differs from the analysis";
+  const coverage = payload.coverage;
+  const first = isoMs(coverage?.first_t), last = isoMs(coverage?.last_t);
+  if (!Number.isFinite(first) || !Number.isFinite(last) || first > last || coverage.last_t !== win.last_t || first < isoMs(win.first_t)) {
+    return "overlay coverage is missing or outside the analysis window";
+  }
+  return null;
+}
+
+// Why a confirmed swing cannot be drawn (null when it can). Never repaired or re-timed.
+function overlaySwingProblem(swing, inCoverage, at, lastT, asOf) {
+  if (!swing || typeof swing !== "object") return "invalid swing record";
+  if (swing.confirmation_status !== "confirmed") return "not confirmed";
+  if (swing.type !== "high" && swing.type !== "low") return "invalid swing type";
+  if (!isFiniteNumber(swing.price)) return "invalid price";
+  if (!inCoverage(swing.pivot_t) || at(swing.pivot_t) == null) return "pivot candle outside the coverage or not on the chart";
+  const pivot = isoMs(swing.pivot_t), confirmedBy = isoMs(swing.confirmed_by_t), confirmedAt = isoMs(swing.confirmed_at_utc);
+  if (!Number.isFinite(confirmedBy) || confirmedBy <= pivot || confirmedBy > isoMs(lastT)) return "invalid confirming candle";
+  if (!Number.isFinite(confirmedAt) || confirmedAt <= pivot) return "invalid confirmation time";
+  if (confirmedAt > isoMs(asOf)) return "not yet confirmed at the analysed close";
+  return null;
+}
+
+// The backend's three zone positions relative to the price (features.location_zones): a zone is
+// entirely above it, entirely below it, or contains it.
+const ZONE_POSITIONS = ["above", "below", "contains"];
+
+// Why a backend zone record cannot be drawn (null when it can). Nothing is repaired or invented.
+function overlayZoneProblem(zone) {
+  if (!zone || typeof zone !== "object") return "invalid zone record";
+  if (typeof zone.id !== "string" || !zone.id) return "invalid zone identifier";
+  if (!isFiniteNumber(zone.zone_low) || !isFiniteNumber(zone.zone_high)) return "invalid price boundary";
+  if (zone.zone_low > zone.zone_high) return "reversed price boundaries";
+  if (!ZONE_POSITIONS.includes(zone.position)) return "invalid position";
+  return null;
+}
+
+// Deterministic zone choice: the backend's nearest zone below and above price, then up to two
+// more per side inside the visible price range, by backend distance (then id).
+function overlayZones(layer, low, high) {
+  const byId = new Map(layer.zones.map((zone) => [zone.id, zone]));
+  const chosen = layer.nearest.map((id) => byId.get(id)).filter(Boolean);
+  const order = (a, b) => (a.distance_atr ?? Infinity) - (b.distance_atr ?? Infinity) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  // Zones containing the price are the most relevant: all of them, by id.
+  layer.zones.filter((zone) => zone.position === "contains" && !chosen.includes(zone))
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)).forEach((zone) => chosen.push(zone));
+  for (const position of ["below", "above"]) {
+    layer.zones
+      .filter((zone) => zone.position === position && !chosen.includes(zone) && zone.zone_high >= low && zone.zone_low <= high)
+      .sort(order).slice(0, 2).forEach((zone) => chosen.push(zone));
+  }
+  return chosen;
+}
+
+function overlayPanelMarkup(model) {
+  const badge = `<span class="badge ${OVERLAY_MODE_CLASS[model.mode] ?? ""}" data-overlay-state="${esc(model.mode)}">${esc(OVERLAY_MODE_LABELS[model.mode] ?? model.mode)}</span>`;
+  if (!model.layers) {
+    return `<div class="overlay-strip">${badge}<span class="overlay-message">${esc(model.reason ?? "")} No annotations are shown; the clean chart remains available.</span></div>`;
+  }
+  const result = model.envelope.result;
+  const summary = result.market_condition?.summary ?? {};
+  const decision = result.decision ?? {};
+  const facts = [["Trend", summary.trend_regime], ["Bias", summary.directional_bias], ["Strength", summary.trend_strength], ["Volatility", summary.volatility]]
+    .map(([label, value]) => `<span class="overlay-fact"><span>${label}</span> ${esc(humanize(value))}</span>`).join("");
+  const outcome = `<span class="badge ${OUTCOME_CLASS[decision.outcome] ?? ""}" data-overlay-outcome="${esc(decision.outcome)}">${esc(OUTCOME_LABELS[decision.outcome] ?? decision.outcome)} · ${esc(decision.rule)}</span>`;
+  const tick = model.envelope.window_validation?.recency?.reference?.tick_time_utc;
+  const times = `Analysed through the candle opened ${esc(stamp(model.layers.endpoint.t))} · evaluated ${esc(stampSeconds(result.evaluated_at_utc))} · latest tick ${esc(tick ? stampSeconds(tick) : "—")}`;
+  const zones = model.layers.zones;
+  const zoneNote = zones && !zones.trusted ? '<span class="overlay-fact untrusted">Zones untrusted (muted)</span>' : "";
+  const items = [
+    ...model.layers.ema.map((e) => `${e.name} ${analysisValue(e.value)}${model.mode === "provisional" ? " (PROVISIONAL)" : ""} at the last analysed candle (${stamp(e.t)}) · features.latest.${e.name}`),
+    ...model.layers.pivots.map((p) => `Swing ${p.label} (${p.role}, ${p.type}) ${analysisValue(p.price)} at ${stamp(p.t)}, confirmed ${stamp(p.confirmed_at_utc)} · features.swings`),
+    ...(zones ? zones.nearest.map((id) => zones.zones.find((z) => z.id === id)).filter(Boolean).map((z) => `Nearest ${z.position} price: ${z.side} ${z.id} ${analysisValue(z.zone_low)}–${analysisValue(z.zone_high)}, strength ${z.strength}${zones.trusted ? "" : " (untrusted)"} · market_condition.location`) : []),
+    ...(model.layers.pullback ? [`Pullback window: ${model.layers.pullback.rows.length} candle(s) from ${stamp(model.layers.pullback.rows[0].t)} · features.pullback`] : []),
+    ...model.layers.checks.map((c) => `${c.id}: ${CHECK_RESULT_LABELS[c.result] ?? c.result} at ${stamp(c.t)} · observed ${analysisValue(c.observed)} vs ${analysisValue(c.threshold)}${c.detail ? ` · ${c.detail}` : ""}`),
+    ...(model.layers.lines ?? []).map((line) => `${line.name} line: ${line.points.filter((p) => p.value != null).length} point(s)${model.mode === "provisional" ? " (PROVISIONAL)" : ""}, ${line.points.filter((p) => p.value != null && !p.converged).length} before convergence (dashed) · overlay.ema.${line.name}`),
+    ...(model.layers.swings?.length ? [`Confirmed swings: ${model.layers.swings.length} (pivot time shown; each confirmed by the analysed close) · overlay.swings`] : []),
+    ...(model.layers.coverage ? [`Historical lines and swings cover ${model.layers.coverage.count} analysed candle(s) from ${stamp(model.layers.coverage.first_t)}${model.layers.coverage.truncated ? " (the most recent part of the analysis window)" : ""}`] : []),
+  ];
+  const problems = model.skipped.filter((s) => !s.expected);
+  const outside = model.skipped.filter((s) => s.expected);
+  const skipped = (problems.length ? `<li class="overlay-skipped">${problems.length} element(s) not shown: ${esc(problems.map((s) => `${s.name ?? s.kind} (${s.reason})`).join("; "))}</li>` : "")
+    + (outside.length ? `<li class="overlay-outside">Outside the loaded chart range (expected, not a data problem): ${esc(outside.map((s) => `${s.name ?? s.kind} (${s.reason})`).join("; "))}</li>` : "")
+    + (state.overlay.last?.hiddenLabels?.length ? `<li class="overlay-outside">${state.overlay.last.hiddenLabels.length} label(s) hidden to avoid overlap; their markers and the entries above remain.</li>` : "");
+  const list = `<details class="overlay-details"><summary>Annotations (${items.length})</summary><ul>${items.map((text) => `<li>${esc(text)}</li>`).join("")}${skipped}</ul></details>`;
+  const message = model.reason ? `<span class="overlay-message">${esc(model.reason)}</span>` : "";
+  return `<div class="overlay-strip">${badge}${outcome}${facts}${zoneNote}${message}</div>${candidateNotice(decision)}<div class="overlay-times">${times}</div>${list}`;
+}
+
+function drawOverlay() {
+  const canvas = document.querySelector("#analysis-overlay");
+  const chart = document.querySelector("#price-chart");
+  if (!canvas || !chart) return;
+  if (!state.overlay.enabled) { clearOverlay(); return; }
+  // The visual model is recomputed only when its inputs change (a new analysis, new chart data,
+  // a state change or another selection); annotation toggles and viewport moves reuse it.
+  const status = analysisStatus();
+  const data = chartData();
+  const cacheKey = JSON.stringify([chartKey(), status.state, status.reasons, state.analysisKey, state.analysisReceivedAt,
+    status.envelope?.served_at_utc, status.envelope?.snapshot?.snapshot_id, state.barsKey, state.barsReceivedAt, data?.status, data?.bars?.length]);
+  let model = state.overlay.modelCache?.key === cacheKey ? state.overlay.modelCache.model : null;
+  if (!model) {
+    model = overlayModel(status, data);
+    state.overlay.modelRuns += 1;
+    state.overlay.modelCache = { key: cacheKey, model };
+  }
+  const panel = document.querySelector("#overlay-panel");
+  const bounds = chart.getBoundingClientRect();
+  const width = bounds.width, height = bounds.height;
+  canvas.style.left = `${chart.offsetLeft}px`;
+  canvas.style.top = `${chart.offsetTop}px`;
+  canvas.style.width = `${width}px`;
+  canvas.style.height = `${height}px`;
+  const viewport = state.chartViewport;
+  const ratio = window.devicePixelRatio || 1;
+  const prefs = annotationState().prefs;
+  const signature = JSON.stringify([width, height, ratio, document.documentElement.dataset.theme, tz(),
+    viewport && [viewport.start, viewport.end, viewport.count, viewport.low, viewport.high],
+    model.mode, model.reason, model.envelope?.served_at_utc, model.envelope?.snapshot?.snapshot_id, prefs]);
+  if (canvas.__signature === signature) {
+    if (panel) setInner(panel, overlayPanelMarkup(model));
+    return;
+  }
+  canvas.__signature = signature;
+  canvas.width = Math.floor(width * ratio);
+  canvas.height = Math.floor(height * ratio);
+  const ctx = canvas.getContext("2d");
+  ctx.scale(ratio, ratio);
+  ctx.clearRect(0, 0, width, height);
+  state.overlay.draws += 1;
+  const drawn = [];
+  const hiddenLabels = [];
+  state.overlay.last = {
+    mode: model.mode, reason: model.reason, annotations: drawn, skipped: model.skipped ?? [],
+    snapshotId: model.envelope?.snapshot?.snapshot_id ?? null, hiddenLabels,
+    hiddenLayers: ANNOTATION_KEYS.filter((key) => prefs[key] === false),
+  };
+  const style = getComputedStyle(document.documentElement);
+  const color = (name) => style.getPropertyValue(name).trim();
+  const pad = CHART_PAD;
+  const plotW = width - pad.left - pad.right, plotH = height - pad.top - pad.bottom;
+  ctx.font = "10px Consolas, monospace";
+  // ---- deterministic label placement: markers stay at their exact coordinates; label text is
+  // placed in priority order at the first free candidate position inside the plot, or hidden
+  // (and listed) when no candidate is free. No data is moved or dropped.
+  const occupied = [];
+  const LABEL_H = 11;
+  const overlaps = (a) => occupied.some((b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y);
+  const inside = (box) => ({
+    ...box,
+    x: clamp(box.x, pad.left + 2, pad.left + plotW - box.w - 2),
+    y: clamp(box.y, pad.top + 2, pad.top + plotH - box.h - 2),
+  });
+  const reserve = (box) => { occupied.push(box); return box; };
+  const STATUS_BOX = { x: pad.left + 4, y: pad.top + 4, w: 0, h: OVERLAY_STATUS_HEIGHT };
+  const STATUS_BOTTOM = pad.top + 4 + OVERLAY_STATUS_HEIGHT;
+  const statusText = OVERLAY_MODE_LABELS[model.mode] ?? model.mode;
+  STATUS_BOX.w = Math.ceil(ctx.measureText(statusText).width) + 10;
+  if (prefs.statusLabel !== false) reserve({ ...STATUS_BOX, h: STATUS_BOX.h + OVERLAY_LABEL_GAP - LABEL_H });
+  // place(text, candidates: [{x, y}] top-left of the text box) -> box or null
+  const place = (kind, text, candidates) => {
+    const w = Math.ceil(ctx.measureText(text).width) + 4;
+    for (const candidate of candidates) {
+      const box = inside({ x: candidate.x, y: candidate.y, w, h: LABEL_H });
+      if (!overlaps(box)) return reserve(box);
+    }
+    hiddenLabels.push({ kind, text });
+    return null;
+  };
+  const labels = []; // [{priority, kind, text, candidates, draw(box)}], resolved after the shapes
+  const drawStatus = () => {
+    if (prefs.statusLabel === false) return;
+    const tone = { current: "--green", provisional: "--amber", outdated: "--amber", unavailable: "--red" }[model.mode] ?? "--dim";
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.setLineDash([]);
+    ctx.fillStyle = color("--panel");
+    ctx.fillRect(STATUS_BOX.x, STATUS_BOX.y, STATUS_BOX.w, STATUS_BOX.h);
+    ctx.strokeStyle = color(tone);
+    ctx.strokeRect(STATUS_BOX.x + 0.5, STATUS_BOX.y + 0.5, STATUS_BOX.w - 1, STATUS_BOX.h - 1);
+    ctx.fillStyle = color(tone);
+    ctx.fillText(statusText, STATUS_BOX.x + 5, STATUS_BOX.y + 11);
+    ctx.restore();
+    state.overlay.last.status = { text: statusText, ...STATUS_BOX, order: drawn.length };
+  };
+  const finish = () => {
+    drawStatus(); // last: above every annotation layer
+    if (panel) setInner(panel, overlayPanelMarkup(model));
+  };
+  if (!model.layers || !viewport || !Number.isFinite(viewport.low) || !Number.isFinite(viewport.high) || viewport.high === viewport.low) {
+    finish();
+    return;
+  }
+  const bars = chartGeometry()?.bars ?? [];
+  const slot = plotW / viewport.count;
+  const visible = (i) => i >= viewport.start && i <= viewport.end;
+  const x = (i) => pad.left + slot * (i - viewport.start) + slot / 2;
+  const y = (value) => pad.top + plotH * (viewport.high - value) / (viewport.high - viewport.low);
+  const { layers } = model;
+  const end = layers.endpoint.index;
+  const endX = end > viewport.end ? pad.left + plotW : x(end) + slot / 2; // analysis never extends past its last candle
+  const provisional = model.mode === "provisional";
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(pad.left, pad.top, plotW, plotH);
+  ctx.clip();
+  if (provisional) ctx.globalAlpha = 0.6;
+  // Support / resistance zones, up to the last analysed candle. Zones containing the price are
+  // governed by their own toggle; the others by their side.
+  if (layers.zones && end >= viewport.start) {
+    for (const zone of overlayZones(layers.zones, viewport.low, viewport.high)) {
+      if (zone.zone_high < viewport.low || zone.zone_low > viewport.high) continue;
+      const containing = zone.position === "contains";
+      const key = containing ? "containsZones" : zone.side === "resistance" ? "resistanceZones" : "supportZones";
+      if (prefs[key] === false) continue;
+      const top = y(zone.zone_high), bottom = y(zone.zone_low);
+      const trusted = layers.zones.trusted;
+      const toneVar = trusted ? (zone.side === "resistance" ? "--red" : "--green") : "--dim"; // untrusted: neutral grey
+      const tone = color(toneVar);
+      ctx.save();
+      ctx.globalAlpha = (provisional ? 0.6 : 1) * (trusted ? (containing ? 0.18 : 0.12) : 0.06);
+      ctx.fillStyle = tone;
+      ctx.fillRect(pad.left, top, endX - pad.left, Math.max(1, bottom - top));
+      ctx.globalAlpha = (provisional ? 0.6 : 1) * (trusted ? 0.55 : 0.35);
+      ctx.strokeStyle = tone;
+      ctx.lineWidth = containing ? 1.5 : 1; // price inside: a slightly firmer border
+      ctx.setLineDash(trusted ? [] : [3, 3]);
+      ctx.beginPath(); ctx.moveTo(pad.left, Math.round(top) + 0.5); ctx.lineTo(endX, Math.round(top) + 0.5);
+      ctx.moveTo(pad.left, Math.round(bottom) + 0.5); ctx.lineTo(endX, Math.round(bottom) + 0.5); ctx.stroke();
+      ctx.restore();
+      const text = `${zone.side} ${zone.id} · ${zone.strength}${containing ? " · price inside zone" : ""}${trusted ? "" : " · untrusted"}`;
+      const record = { kind: "zone", id: zone.id, side: zone.side, position: zone.position, trusted, color: toneVar, zone_low: zone.zone_low, zone_high: zone.zone_high, top, bottom, right: endX, label: text, labelY: null, labelBox: null };
+      drawn.push(record);
+      const firstY = Math.max(STATUS_BOTTOM + OVERLAY_LABEL_GAP, top - 3) - 9; // never under the status label
+      labels.push({
+        priority: 5, kind: "zone", text,
+        candidates: [firstY, firstY + LABEL_H + 1, firstY - LABEL_H - 1, Math.min(bottom, firstY + 2 * (LABEL_H + 1))].map((ly) => ({ x: pad.left + 4, y: ly })),
+        draw: (box) => {
+          ctx.save();
+          ctx.globalAlpha = (provisional ? 0.6 : 1) * (trusted ? 0.9 : 0.6);
+          ctx.fillStyle = tone;
+          ctx.fillText(text, box.x, box.y + 9);
+          ctx.restore();
+          record.labelY = box.y + 9;
+          record.labelBox = box;
+        },
+      });
+    }
+  }
+  // Historical EMA lines (phase 2): exact candle positions only; a line breaks at a missing,
+  // unavailable or off-chart point and never extends past the last analysed candle. Points
+  // before T5's convergence point are dashed and faint (explained by the legend).
+  let warmupShown = false;
+  const linesShown = [];
+  for (const line of layers.lines ?? []) {
+    if (prefs[EMA_ANNOTATION[line.name]] === false) continue;
+    const runs = [];
+    let run = [], previous = null;
+    for (const point of line.points) {
+      const ok = point.value != null && visible(point.index);
+      if (!ok || (previous && point.index !== previous.index + 1)) { if (run.length) runs.push(run); run = []; }
+      if (ok) { run.push(point); previous = point; } else { previous = null; }
+    }
+    if (run.length) runs.push(run);
+    const tone = color(OVERLAY_EMA[line.name].color);
+    ctx.save();
+    ctx.strokeStyle = tone;
+    ctx.lineWidth = 1.2;
+    for (const segment of runs) {
+      for (let k = 1; k < segment.length; k++) {
+        const a = segment[k - 1], b = segment[k];
+        const converged = a.converged && b.converged;
+        if (!converged) warmupShown = true;
+        ctx.globalAlpha = (provisional ? 0.6 : 1) * (converged ? 0.85 : 0.4);
+        ctx.setLineDash(converged ? [] : [2, 3]);
+        ctx.beginPath(); ctx.moveTo(x(a.index), y(a.value)); ctx.lineTo(x(b.index), y(b.value)); ctx.stroke();
+      }
+    }
+    ctx.restore();
+    if (runs.some((segment) => segment.length > 1)) linesShown.push(line.name);
+    drawn.push({ kind: "ema_line", name: line.name, runs: runs.map((segment) => segment.map((p) => ({ t: p.t, x: x(p.index), y: y(p.value), converged: p.converged }))) });
+  }
+  // Pullback window (its own toggle), its EMA20/EMA50 values (the EMA toggles) and the TC4 candle.
+  if (layers.pullback) {
+    if (prefs.pullback !== false) {
+      ctx.fillStyle = color("--accent");
+      for (const row of layers.pullback.rows) {
+        if (!visible(row.index)) continue;
+        ctx.save(); ctx.globalAlpha = 0.07; ctx.fillRect(x(row.index) - slot / 2, pad.top, slot, plotH); ctx.restore();
+        drawn.push({ kind: "pullback", t: row.t, x: x(row.index) });
+      }
+    }
+    for (const name of ["ema20", "ema50"]) {
+      if (prefs[name] === false) continue;
+      const points = layers.pullback.rows.filter((row) => row[name] != null && visible(row.index)).sort((a, b) => a.index - b.index);
+      if (points.length < 1) continue;
+      ctx.strokeStyle = color(OVERLAY_EMA[name.toUpperCase()].color);
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      points.forEach((row, k) => (k ? ctx.lineTo(x(row.index), y(row[name])) : ctx.moveTo(x(row.index), y(row[name]))));
+      ctx.stroke();
+      ctx.lineWidth = 1;
+      drawn.push({ kind: "ema_segment", name: name.toUpperCase(), points: points.map((row) => ({ t: row.t, x: x(row.index), y: y(row[name]) })) });
+    }
+  }
+  // Setup checks: TC4 outline and TC3/TC4/TC5 markers, each with its own toggle.
+  let pinStack = 0;
+  for (const check of layers.checks) {
+    if (!visible(check.index) || !bars[check.index]) continue;
+    const bar = bars[check.index];
+    const cx = x(check.index);
+    if (check.id === "TC4_pullback" && prefs.tc4Outline !== false) {
+      ctx.strokeStyle = color("--text");
+      ctx.strokeRect(Math.round(cx - slot / 2) + 0.5, y(bar.h) - 3, Math.max(3, Math.round(slot) - 1), y(bar.l) - y(bar.h) + 6);
+      drawn.push({ kind: "check_outline", id: check.id, t: check.t, x: cx });
+    }
+    if (prefs[CHECK_ANNOTATION[check.id]] === false) continue;
+    const record = { kind: "check", id: check.id, result: check.result, t: check.t, x: cx, labelBox: null };
+    drawn.push(record);
+    const text = `${check.id.slice(0, 3)} ${CHECK_RESULT_LABELS[check.result] ?? check.result}`;
+    const w = Math.ceil(ctx.measureText(text).width) + 4;
+    const above = y(bar.h) - 8 - LABEL_H, below = y(bar.l) + 8;
+    const k = pinStack++;
+    labels.push({
+      priority: 2, kind: "check", text,
+      candidates: [above - k * (LABEL_H + 1), above - (k + 1) * (LABEL_H + 1), below + k * (LABEL_H + 1), above - (k + 2) * (LABEL_H + 1)].map((ly) => ({ x: cx - w / 2, y: ly })),
+      draw: (box) => {
+        ctx.fillStyle = color(check.result === "pass" ? "--green" : check.result === "fail" ? "--red" : "--dim");
+        ctx.fillText(text, box.x + 2, box.y + 9);
+        record.labelBox = box;
+      },
+    });
+  }
+  // Confirmed swings (phase 2): small unlabelled rings at the pivot candle, above highs and
+  // below lows (swing highs and swing lows toggle separately); decision pivots are not repeated.
+  ctx.strokeStyle = color("--muted");
+  for (const swing of layers.swings ?? []) {
+    if (!visible(swing.index)) continue;
+    if (prefs[swing.type === "high" ? "swingHighs" : "swingLows"] === false) continue;
+    const sx = x(swing.index), sy = y(swing.price) + (swing.type === "high" ? -6 : 6);
+    ctx.beginPath(); ctx.arc(sx, sy, 2.5, 0, Math.PI * 2); ctx.stroke();
+    drawn.push({ kind: "swing", id: swing.id, type: swing.type, t: swing.t, confirmed_at_utc: swing.confirmed_at_utc, x: sx, y: sy });
+  }
+  // Confirmed decision pivots.
+  if (prefs.decisionPivots !== false) {
+    for (const pivot of layers.pivots) {
+      if (!visible(pivot.index)) continue;
+      const px = x(pivot.index), py = y(pivot.price);
+      const up = pivot.type === "low";
+      ctx.fillStyle = color("--text");
+      ctx.beginPath();
+      if (up) { ctx.moveTo(px, py + 4); ctx.lineTo(px - 4, py + 10); ctx.lineTo(px + 4, py + 10); }
+      else { ctx.moveTo(px, py - 4); ctx.lineTo(px - 4, py - 10); ctx.lineTo(px + 4, py - 10); }
+      ctx.closePath(); ctx.fill();
+      const record = { kind: "pivot", role: pivot.role, label: pivot.label, t: pivot.t, x: px, y: py, labelBox: null };
+      drawn.push(record);
+      const w = Math.ceil(ctx.measureText(pivot.label).width) + 4;
+      const near = up ? py + 12 : py - 12 - LABEL_H;
+      labels.push({
+        priority: 4, kind: "pivot", text: pivot.label,
+        candidates: [near, up ? near + LABEL_H + 1 : near - LABEL_H - 1].map((ly) => ({ x: px - w / 2, y: ly })),
+        draw: (box) => { ctx.fillStyle = color("--muted"); ctx.fillText(pivot.label, box.x + 2, box.y + 9); record.labelBox = box; },
+      });
+    }
+  }
+  // The last analysed candle (not the evaluation time, not the latest tick).
+  if (visible(end)) {
+    if (prefs.endpointMarker !== false) {
+      ctx.strokeStyle = color("--dim");
+      ctx.setLineDash([2, 3]);
+      ctx.beginPath(); ctx.moveTo(Math.round(endX) + 0.5, pad.top); ctx.lineTo(Math.round(endX) + 0.5, pad.top + plotH); ctx.stroke();
+      ctx.setLineDash([]);
+      const record = { kind: "endpoint", t: layers.endpoint.t, x: endX, labelBox: null };
+      drawn.push(record);
+      const text = `analysed through ${timeLabel(layers.endpoint.t, chartData()?.timeframe)}`;
+      const w = Math.ceil(ctx.measureText(text).width) + 4;
+      const base = pad.top + plotH - LABEL_H - 3;
+      labels.push({
+        priority: 3, kind: "endpoint", text,
+        candidates: [base, base - LABEL_H - 1, base - 2 * (LABEL_H + 1)].map((ly) => ({ x: endX - w - 4, y: ly })),
+        draw: (box) => { ctx.fillStyle = color("--dim"); ctx.fillText(text, box.x + 2, box.y + 9); record.labelBox = box; },
+      });
+    }
+    // EMA tags anchored at the last analysed candle, labelled to its left (the analysed side).
+    for (const ema of [...layers.ema].sort((a, b) => y(a.value) - y(b.value))) {
+      if (prefs[EMA_ANNOTATION[ema.name]] === false) continue;
+      const ey = y(ema.value);
+      ctx.fillStyle = color(OVERLAY_EMA[ema.name].color);
+      ctx.beginPath(); ctx.arc(x(end), ey, 2.5, 0, Math.PI * 2); ctx.fill();
+      const text = `${ema.name} ${ema.value.toFixed(chartData()?.digits ?? 5)}${provisional ? " (PROVISIONAL)" : ""}`;
+      const record = { kind: "ema", name: ema.name, value: ema.value, t: ema.t, x: x(end), y: ey, label: text, labelBox: null };
+      drawn.push(record);
+      const w = Math.ceil(ctx.measureText(text).width) + 4;
+      const top = ey - 7;
+      labels.push({
+        priority: 1, kind: "ema", text,
+        candidates: [0, LABEL_H + 1, -(LABEL_H + 1), 2 * (LABEL_H + 1), -2 * (LABEL_H + 1), 3 * (LABEL_H + 1)].map((dy) => ({ x: x(end) - w - 5, y: top + dy })),
+        draw: (box) => {
+          ctx.save();
+          ctx.globalAlpha = 1; // readable on its own, not only through opacity
+          ctx.fillStyle = color("--panel");
+          ctx.fillRect(box.x, box.y, box.w, box.h);
+          ctx.fillStyle = color(OVERLAY_EMA[ema.name].color);
+          ctx.fillText(text, box.x + 2, box.y + 9);
+          ctx.restore();
+          record.labelBox = box;
+        },
+      });
+    }
+  }
+  // Legend for the EMA lines shown, explaining the dashed warm-up history (T5's convergence rule).
+  if (linesShown.length) {
+    const parts = linesShown.map((name) => ({ name, tone: color(OVERLAY_EMA[name].color) }));
+    const warm = warmupShown ? "dashed = warm-up, not yet converged (T5 1% rule)" : "";
+    const sample = 14;
+    const textW = parts.reduce((sum, part) => sum + sample + 4 + ctx.measureText(part.name).width + 10, 0) + (warm ? ctx.measureText(warm).width + 4 : 0);
+    const w = Math.ceil(textW) + 6, h = LABEL_H + 2;
+    const legendBox = [pad.top + plotH - h - 3, pad.top + plotH - 2 * h - 5]
+      .map((ly) => inside({ x: pad.left + 4, y: ly, w, h }))
+      .find((candidate) => !overlaps(candidate));
+    {
+      if (legendBox) {
+        reserve(legendBox);
+        ctx.save();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = color("--panel");
+        ctx.fillRect(legendBox.x, legendBox.y, legendBox.w, legendBox.h);
+        let lx = legendBox.x + 3;
+        const ly = legendBox.y + legendBox.h / 2;
+        for (const part of parts) {
+          ctx.strokeStyle = part.tone;
+          ctx.setLineDash(part.name === "EMA200" && warmupShown ? [2, 3] : []);
+          ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(lx + sample, ly); ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.fillStyle = part.tone;
+          ctx.fillText(part.name, lx + sample + 4, legendBox.y + 10);
+          lx += sample + 4 + ctx.measureText(part.name).width + 10;
+        }
+        if (warm) { ctx.fillStyle = color("--dim"); ctx.fillText(warm, lx, legendBox.y + 10); }
+        ctx.restore();
+        drawn.push({ kind: "legend", lines: linesShown, warmup: warmupShown, text: warm, labelBox: legendBox });
+      } else {
+        hiddenLabels.push({ kind: "legend", text: warm || "EMA legend" });
+      }
+    }
+  }
+  // Resolve the labels: priority order, then stable input order.
+  labels
+    .map((label, index) => ({ ...label, index }))
+    .sort((a, b) => a.priority - b.priority || a.index - b.index)
+    .forEach((label) => {
+      const box = place(label.kind, label.text, label.candidates);
+      if (box) label.draw(box);
+    });
+  ctx.restore();
+  finish();
+}
+
+// Introspection for tests: what the overlay last drew (null when cleared).
+function overlayState() {
+  return { enabled: state.overlay.enabled, draws: state.overlay.draws, last: state.overlay.last ? JSON.parse(JSON.stringify(state.overlay.last)) : null };
 }
 
 // ---------------------------------------------------------------- market analysis (read-only)
@@ -1185,6 +1984,7 @@ function renderAnalysis() {
   const full = document.querySelector("#analysis-full-body");
   if (full) setInner(full, analysisFullMarkup());
   renderAnalysisAge();
+  if (state.overlay.enabled) drawOverlay();
 }
 // The browser-receipt age changes every second; it is kept out of the panel markup so that
 // re-rendering never collapses open details.
@@ -1299,15 +2099,423 @@ function overviewPage() {
 const PAGE_INFO = {
   calendar: ["Economic Calendar", "Upcoming scheduled events", ""],
   news: ["News", "Market headlines and source status", ""],
-  signals: ["Trading Signals", "Signal workspace", "Signal generation has not been implemented. No signals are displayed or implied."],
   rules: ["Trading Rules", "Rule configuration", "Rule evaluation has not been implemented. No strategy or trading rules are active."],
-  risk: ["Risk Management", "Exposure and risk controls", "Risk calculations are not implemented. This page does not report positions or account exposure."],
   positions: ["Positions", "Open broker positions", "Broker position synchronization is not connected. No position data is available."],
   history: ["Trade History", "Orders and completed trades", "Execution history is not connected. No trades or performance are reported."],
   analytics: ["Analytics", "Performance and market analysis", "Analytics will be available after trading records exist."],
 };
 
+// ---------------------------------------------------------------- account & broker (Phase 3)
+// Read-only account metrics and broker instrument specifications from /api/account/*. Every
+// value arrives with a validation status; "unavailable", "invalid", "not applicable" and
+// "unverified" are always shown as labelled chips, never as 0 or a blank. No execution controls.
+const ACCOUNT_EXPIRE_MS = 30000; // no fresh answer for this long: shown as not live
+const FIELD_STATUS_LABELS = { unavailable: "Unavailable", invalid: "Invalid", not_applicable: "N/A", unverified: "Unverified" };
+const ACCOUNT_CARDS = [
+  ["currency", "Account currency"], ["balance", "Balance"], ["equity", "Equity"], ["margin_free", "Free margin"],
+  ["margin", "Used margin"], ["margin_level", "Margin level"], ["leverage", "Leverage"],
+];
+const ACCOUNT_PERMISSIONS = [
+  ["trade_allowed", "Account trading allowed"], ["trade_expert", "Expert (API) trading allowed"],
+  ["terminal_trade_allowed", "Terminal trading allowed"], ["terminal_tradeapi_disabled", "Terminal trade API disabled"],
+  ["trade_mode", "Account mode"], ["margin_mode", "Margin mode"], ["margin_so_mode", "Stop-out mode"],
+  ["margin_so_call", "Margin call level"], ["margin_so_so", "Stop-out level"], ["limit_orders", "Pending order limit"],
+  ["profit", "Floating profit"], ["credit", "Credit"],
+];
+const INSTRUMENT_ROWS = [
+  ["Contract", [["broker_symbol", "Broker symbol"], ["currency_base", "Base currency"], ["currency_profit", "Profit currency"], ["currency_margin", "Margin currency"], ["contract_size", "Contract size"], ["digits", "Digits"], ["point", "Point"]]],
+  ["Tick", [["tick_size", "Tick size"], ["tick_value", "Tick value"], ["tick_value_profit", "Tick value (profit)"], ["tick_value_loss", "Tick value (loss)"]]],
+  ["Volume", [["volume_min", "Minimum volume"], ["volume_max", "Maximum volume"], ["volume_step", "Volume step"], ["volume_limit", "Aggregate limit"]]],
+  ["Trading", [["trade_mode", "Trade permission"], ["calculation_mode", "Calculation mode"], ["execution_mode", "Execution mode"], ["order_types", "Order types"], ["filling_modes", "Filling modes"], ["stops_level", "Stops level"], ["freeze_level", "Freeze level"]]],
+  ["Swap", [["swap_mode", "Swap mode"], ["swap_long", "Swap long"], ["swap_short", "Swap short"], ["swap_rollover3days", "Triple-swap day"]]],
+];
+const QUOTE_ROWS = [["bid", "Bid"], ["ask", "Ask"], ["spread_points", "Spread (points)"], ["spread_reported_points", "Spread reported by MT5"]];
+
+const accountExpired = () => !state.account.receivedAt || Date.now() - state.account.receivedAt > ACCOUNT_EXPIRE_MS;
+// What the page shows: the backend's own status, downgraded when a refresh failed or expired.
+function accountView() {
+  const { summary, instruments, error } = state.account;
+  let status = summary?.status ?? "UNAVAILABLE";
+  if (summary && (error || accountExpired())) status = "CACHED";
+  if (!summary && !error && !state.account.receivedAt) status = "LOADING";
+  return { summary, instruments, status, error };
+}
+
+function fieldText(report) {
+  if (!report || typeof report !== "object") return { text: "Unavailable", chip: "unavailable", title: "No value" };
+  const { value, status, unit, reason } = report;
+  // Never show a number next to these labels: MT5 reports 0 for an undefined margin level.
+  if (status === "unavailable" || status === "invalid" || status === "not_applicable") {
+    return { text: FIELD_STATUS_LABELS[status], chip: status, title: reason ?? "" };
+  }
+  let text;
+  if (typeof value === "boolean") text = value ? "Yes" : "No";
+  else if (Array.isArray(value)) text = value.length ? value.map((item) => String(item).replaceAll("_", " ")).join(", ") : "None";
+  else if (typeof value === "number") text = unit === "1:x" ? `1:${value}` : String(value);
+  else text = String(value ?? "").replaceAll("_", " ");
+  if (typeof value === "number" && unit && unit !== "1:x") text += ` ${unit}`;
+  const chip = status === "verified" ? null : status;
+  return { text, chip, title: reason ?? (report.source ? `Source: ${report.source}` : "") };
+}
+function fieldMarkup(report) {
+  const { text, chip, title } = fieldText(report);
+  const chipMarkup = chip ? `<span class="field-chip ${esc(chip)}">${esc(FIELD_STATUS_LABELS[chip] ?? chip)}</span>` : "";
+  if (chip && FIELD_STATUS_LABELS[chip] === text) return `<span class="field-value missing" data-field-status="${esc(chip)}" title="${esc(title)}">${chipMarkup}</span>`;
+  return `<span class="field-value" data-field-status="${esc(report?.status ?? "unavailable")}" title="${esc(title)}">${esc(text)}${chipMarkup ? ` ${chipMarkup}` : ""}</span>`;
+}
+const validationChip = (validation) => `<span class="field-chip validation ${esc(validation ?? "unavailable")}">${esc(String(validation ?? "unavailable").replaceAll("_", " "))}</span>`;
+
+function currencyNote(currency) {
+  const unit = currency?.unit;
+  if (!unit || currency.status !== "verified") return "";
+  if (unit.kind === "cent") {
+    const confirmed = unit.confirmation === "consistent" ? "confirmed by tick values" : `not confirmed (${String(unit.confirmation ?? "not checked").replaceAll("_", " ")})`;
+    return `1 ${currency.value} = 1/${unit.units_per_major} ${unit.major} (cent unit) · ${confirmed}`;
+  }
+  return `${currency.value} (ISO currency)`;
+}
+
+function accountContent() {
+  const { summary, instruments, status, error } = accountView();
+  if (!summary) {
+    const message = status === "LOADING" ? "Waiting for the first answer from MT5." : (error?.message || "MT5 account information is unavailable.");
+    return `<section class="panel">${emptyState(status === "LOADING" ? "Loading account information" : "Account information unavailable", message, status === "LOADING" ? "" : "error-state")}</section>`;
+  }
+  const fields = summary.account ?? {};
+  const provenance = summary.provenance ?? {};
+  const age = state.account.receivedAt ? Math.round((Date.now() - state.account.receivedAt) / 1000) : null;
+  const freshness = status === "LIVE"
+    ? "Live: fetched from MT5 just now"
+    : `Not live: last retrieved ${stampSeconds(summary.retrieved_at_utc)}${error ? ` · ${error.message || reasonText(error.reason)}` : summary.reason ? ` · ${reasonText(summary.reason)}` : ""}`;
+  const cards = ACCOUNT_CARDS.map(([key, label]) => `<div class="stat" data-account-field="${key}"><div class="stat-label">${esc(label)}</div><div class="stat-value">${fieldMarkup(fields[key])}</div></div>`).join("")
+    + `<div class="stat" data-account-field="freshness"><div class="stat-label">Data status</div><div class="stat-value">${statusBadge(status)}</div></div>`;
+  const permissions = ACCOUNT_PERMISSIONS.map(([key, label]) => `<div class="info-row" data-account-field="${key}"><span>${esc(label)}</span><strong>${fieldMarkup(fields[key])}</strong></div>`).join("");
+  const checks = (summary.checks ?? []).map((check) => `<div class="info-row" data-check="${esc(check.check)}"><span>${esc(check.check.replaceAll("_", " "))}</span><strong class="check-${esc(check.status)}">${esc(check.status.replaceAll("_", " "))}<small> · ${esc(check.detail)}</small></strong></div>`).join("");
+  const sourceRows = [
+    ["Broker", provenance.company ?? "—"], ["Trade server", provenance.server ?? "—"], ["Account type", provenance.account_type ?? "—"],
+    ["Provenance", provenance.status === "established" ? "Established (identity re-checked after the read)" : `Not established: ${provenance.reason ?? "unknown"}`],
+    ["Retrieved", `${stampSeconds(summary.retrieved_at_utc)}${age !== null ? ` · received ${age} s ago` : ""}`],
+    ["Freshness", freshness],
+    ["Account validation", String(summary.validation ?? "—").replaceAll("_", " ")],
+  ];
+  const sources = sourceRows.map(([label, value]) => `<div class="info-row"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join("");
+  const note = currencyNote(fields.currency);
+  return `<div class="stats-strip account-strip" id="account-overview">${cards}</div>
+    <div class="account-grid">
+      <section class="panel"><div class="panel-head"><span class="panel-title">Source &amp; freshness</span><span class="panel-meta">${provenance.status === "established" ? "PROVENANCE ESTABLISHED" : "PROVENANCE NOT ESTABLISHED"}</span></div><div class="info-list" id="account-source">${sources}${note ? `<div class="info-row"><span>Currency unit</span><strong id="account-currency-note">${esc(note)}</strong></div>` : ""}</div></section>
+      <section class="panel"><div class="panel-head"><span class="panel-title">Permissions &amp; margin rules</span><span class="panel-meta">AS REPORTED BY MT5</span></div><div class="info-list" id="account-permissions">${permissions}</div></section>
+      <section class="panel"><div class="panel-head"><span class="panel-title">Consistency checks</span><span class="panel-meta">ACCOUNT</span></div><div class="info-list" id="account-checks">${checks || '<div class="info-row"><span>No checks</span><strong>—</strong></div>'}</div></section>
+    </div>
+    ${instrumentsMarkup(instruments, status)}
+    <div class="panel-note account-note">Read-only. Account and symbol values are read one after another on one MT5 connection (not atomically); each has its own retrieval time. Tick values are point-in-time, in the account currency. Johanna places no orders.</div>`;
+}
+
+function instrumentsMarkup(payload, status) {
+  const items = payload?.instruments ?? [];
+  if (!items.length) return `<section class="panel"><div class="panel-head"><span class="panel-title">Instrument specifications</span></div>${emptyState("No instrument data", "The broker specifications are unavailable.", "error-state")}</section>`;
+  const head = `<tr><th>Field</th>${items.map((item) => `<th data-instrument="${esc(item.symbol)}">${esc(item.broker_symbol ?? item.symbol)} ${validationChip(item.validation)}</th>`).join("")}</tr>`;
+  const row = (label, key, cell) => `<tr data-row="${esc(key)}"><td class="field-name">${esc(label)}</td>${items.map((item) => `<td>${cell(item)}</td>`).join("")}</tr>`;
+  const groups = INSTRUMENT_ROWS.map(([group, rows]) => `<tr class="group-row"><td colspan="${items.length + 1}">${esc(group)}</td></tr>${rows.map(([key, label]) => row(label, key, (item) => (item.fields && Object.keys(item.fields).length ? fieldMarkup(item.fields[key]) : fieldMarkup(null)))).join("")}`).join("");
+  const quotes = `<tr class="group-row"><td colspan="${items.length + 1}">Current quote</td></tr>${QUOTE_ROWS.map(([key, label]) => row(label, key, (item) => fieldMarkup(item.quote?.[key]))).join("")}`
+    + row("Quote freshness", "quote_freshness", (item) => statusBadge(status === "LIVE" ? (item.quote?.freshness ?? "UNAVAILABLE") : status === "LOADING" ? "LOADING" : "CACHED", item.quote?.quote_age_seconds != null ? `${item.quote.quote_age_seconds} s` : ""))
+    + row("Retrieved", "retrieved", (item) => esc(stampSeconds(item.retrieved_at_utc)))
+    + row("Checks", "checks", (item) => esc((item.checks ?? []).filter((check) => check.status !== "consistent").map((check) => `${check.check.replaceAll("_", " ")}: ${check.status.replaceAll("_", " ")}`).join("; ") || "all consistent"));
+  return `<section class="panel"><div class="panel-head"><span class="panel-title">Instrument specifications</span><span class="panel-meta">FROM THE CONNECTED BROKER · ${items.length} SYMBOLS</span></div><div class="table-scroll"><table class="data-table instrument-table" id="instrument-table"><thead>${head}</thead><tbody>${groups}${quotes}</tbody></table></div></section>`;
+}
+
+function accountPage() {
+  return `${pageHeading("Account & Broker", "Read-only account metrics and broker specifications from MT5", `<span id="account-heading-badge">${statusBadge(accountView().status)}</span>`)}<div id="account-content">${accountContent()}</div>`;
+}
+
+function renderAccount() {
+  if (state.page !== "account") return;
+  setInner(document.querySelector("#account-heading-badge"), statusBadge(accountView().status));
+  setInner(document.querySelector("#account-content"), accountContent());
+}
+
+async function refreshAccount(poller) {
+  const seq = ++state.account.seq;
+  const summary = await fetchJson("/api/account/summary", poller, POLL.accountTimeoutMs);
+  if (summary.aborted || seq !== state.account.seq) return "aborted";
+  const instruments = summary.error ? summary : await fetchJson("/api/account/instruments", poller, POLL.accountTimeoutMs);
+  if (instruments.aborted || seq !== state.account.seq) return "aborted";
+  const valid = (payload) => typeof payload?.status === "string" && "provenance" in payload;
+  const error = summary.error ?? instruments.error
+    ?? (valid(summary.payload) && valid(instruments.payload) && Array.isArray(instruments.payload.instruments) ? null : malformed());
+  if (error) {
+    state.account.error = error; // earlier values stay, shown as not live
+  } else {
+    state.account.summary = summary.payload;
+    state.account.instruments = instruments.payload;
+    state.account.receivedAt = Date.now();
+    state.account.error = null;
+  }
+  renderAccount();
+  return !error;
+}
+
+const accountInterval = () => (accountView().status === "LIVE" ? POLL.accountMs : POLL.quietAccountMs);
+const accountActive = () => state.page === "account";
+
+// ---------------------------------------------------------------- risk management (Phase 4)
+// Proposed trade parameters from /api/risk/proposal for the selected pair and timeframe.
+// Read-only: there are no order, buy or sell controls, and nothing here implies execution.
+const RISK_PAIRS = ["EURUSD", "GBPUSD", "USDJPY"]; // the backend's supported instruments
+const RISK_EXPIRE_MS = 65000;
+const RISK_STATUS = {
+  APPROVED_FOR_MANUAL_REVIEW: ["Approved for manual review", "verified"],
+  REJECTED: ["Rejected", "invalid"],
+  UNVERIFIED: ["Unverified", "unverified"],
+};
+const RISK_AREAS = [["data", "Data & setup"], ["construction", "Entry, SL & TP"], ["per_trade_risk", "Per-trade risk"], ["daily_risk", "Daily risk"], ["broker", "Broker"], ["margin", "Margin"], ["costs", "Costs (net 1:2)"]];
+
+const riskKey = () => `${prefs().selected_currency_pair}|${prefs().selected_chart_timeframe}`;
+function riskProblem() {
+  if (!RISK_PAIRS.includes(prefs().selected_currency_pair)) return `Proposals are available for ${RISK_PAIRS.join(", ")}; the selected pair is ${prefs().selected_currency_pair || "none"}.`;
+  if (!ANALYSIS_TIMEFRAMES.includes(prefs().selected_chart_timeframe)) return `Proposals use the T6 analysis timeframes ${ANALYSIS_TIMEFRAMES.join(", ")}; the selected timeframe is ${prefs().selected_chart_timeframe}.`;
+  return null;
+}
+const riskActive = () => state.page === "risk" && !riskProblem() && !state.error;
+const riskExpired = () => !state.risk.receivedAt || Date.now() - state.risk.receivedAt > RISK_EXPIRE_MS;
+const riskInterval = () => POLL.riskMs;
+const num = (value, digits = 2) => (typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "—");
+// Net reward:risk is "estimated" (every cost incl. a slippage bound established) or "unverified".
+function netText(net) {
+  if (!net) return "—";
+  if (net.status === "estimated" && net.value != null) return `1 : ${num(net.value)} · estimated (commission, swap, slippage bound)`;
+  return "Unverified · costs not established";
+}
+// A volume is shown as proposed only when sizing is verified (costs included).
+function volumeText(sizing) {
+  if (sizing.volume != null) return `${plainNum(sizing.volume)} lots (includes transaction costs)`;
+  const ill = sizing.illustrative_volume_price_risk_only;
+  if (ill && ill.value != null) return `No actionable volume · ${plainNum(ill.value)} lots illustrative (UNVERIFIED, price risk only)`;
+  return "—";
+}
+const plainNum = (value) => (typeof value === "number" && Number.isFinite(value) ? String(value) : "—");
+
+function riskStatusChip(status) {
+  const [label, tone] = RISK_STATUS[status] ?? ["Unavailable", "unavailable"];
+  return `<span class="field-chip validation ${tone}" id="risk-status-chip" data-risk-status="${esc(status ?? "none")}">${esc(label)}</span>`;
+}
+function riskRows(rows) {
+  return `<div class="info-list">${rows.map(([label, value, key]) => `<div class="info-row"${key ? ` data-risk-field="${esc(key)}"` : ""}><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join("")}</div>`;
+}
+
+function riskContent() {
+  const problem = riskProblem();
+  if (problem) return `<section class="panel">${emptyState("No proposal for this selection", problem)}</section>`;
+  const { payload, error, key } = state.risk;
+  const data = key === riskKey() ? payload : null;
+  if (!data) {
+    if (error) return `<section class="panel">${emptyState("Proposal unavailable", error.message || reasonText(error.reason), "error-state")}</section>`;
+    return `<section class="panel">${emptyState("Evaluating", "Waiting for the first risk evaluation from the backend.")}</section>`;
+  }
+  const stale = Boolean(error) || riskExpired();
+  const setup = data.setup ?? {};
+  const p = data.proposal;
+  const sizing = data.sizing ?? {};
+  const daily = data.daily_risk ?? {};
+  const margin = data.margin ?? {};
+  const cur = sizing.currency ?? "USC";
+  const freshness = stale
+    ? `<div class="risk-stale" id="risk-stale">Not current: evaluated ${esc(stampSeconds(data.evaluated_at_utc))}${error ? ` · ${esc(error.message || reasonText(error.reason))}` : ""}. Do not use these parameters.</div>`
+    : "";
+  const reasons = (list, cls) => list.length ? `<ul class="risk-list ${cls}">${list.map((item) => `<li><strong>${esc(item.area.replaceAll("_", " "))}</strong> ${esc(item.reason)}</li>`).join("")}</ul>` : "";
+  const setupRows = [
+    ["Setup", setup.setup ? `${setup.setup.replaceAll("_", " ")}${setup.direction ? ` · ${setup.direction}` : ""}` : "—", "setup"],
+    ["T6 decision", setup.t6_outcome ? `${setup.t6_outcome} · rule ${setup.t6_rule}` : "—", "t6"],
+    ["Snapshot", setup.snapshot_id ?? "—"],
+    ["T6 evaluated", stampSeconds(setup.evaluated_at_utc)],
+    ["Risk evaluated", stampSeconds(data.evaluated_at_utc)],
+  ];
+  const proposalRows = p ? [
+    ["Direction (proposed)", data.direction ?? "—", "direction"],
+    ["Entry (proposed)", `${plainNum(p.entry_price)} · ${p.entry_side} side`, "entry"],
+    ["Entry condition", p.entry_condition, "entry_condition"],
+    ["Stop-loss (proposed)", `${plainNum(p.stop_loss)} · ${p.stop_loss_basis}`, "stop_loss"],
+    ["Take-profit (proposed)", `${plainNum(p.take_profit)} · ${p.take_profit_basis}`, "take_profit"],
+    ["SL / TP distance", `${num(p.stop_loss_distance_points, 0)} / ${num(p.take_profit_distance_points, 0)} points`],
+    ["Reward : risk (gross)", p.gross_reward_risk != null ? `1 : ${num(p.gross_reward_risk)} · spread included; excludes commission, swap, slippage` : "—", "gross_reward_risk"],
+    ["Reward : risk (net)", netText(data.net_reward_risk), "net_reward_risk"],
+    ["Volume (proposed)", volumeText(sizing), "volume"],
+    ["Estimated loss at SL (incl. costs)", sizing.estimated_loss != null ? `${num(sizing.estimated_loss)} ${cur} · price ${num(sizing.estimated_price_loss)} + costs ${num(sizing.estimated_costs)}` : "Not established (costs unverified)", "estimated_loss"],
+    ["Estimated reward at TP (gross / net)", sizing.estimated_reward_gross != null ? `${num(sizing.estimated_reward_gross)} / ${num(sizing.estimated_reward_net)} ${cur}` : "Not established (costs unverified)", "estimated_reward"],
+  ] : [];
+  const riskRowsList = [
+    ["Reference capital", sizing.equity != null ? `equity ${num(sizing.equity)} ${cur}` : "—"],
+    ["Max risk per trade", sizing.max_risk_per_trade != null ? `${num(sizing.max_risk_per_trade)} ${cur} (${num(data.policy.max_risk_per_trade * 100, 1)}%)` : `${num(data.policy.max_risk_per_trade * 100, 1)}% of equity`, "max_risk"],
+    ["Sizing status", sizing.status ? `${sizing.status} · ${sizing.includes_costs ? "includes applicable transaction costs" : "transaction costs not established: no actionable volume"}` : "—", "sizing_status"],
+    ["Risk budget", sizing.risk_budget != null ? `${num(sizing.risk_budget)} ${cur} (${sizing.risk_budget_basis})` : "—", "risk_budget"],
+    ["Price loss per lot (tick / contract)", sizing.loss_per_lot ? `${num(sizing.loss_per_lot.tick_value_method)} / ${num(sizing.loss_per_lot.contract_size_method)} ${cur}` : "—"],
+    ["Costs per lot (commission / swap / slippage)", sizing.loss_per_lot ? [sizing.loss_per_lot.commission, sizing.loss_per_lot.swap, sizing.loss_per_lot.slippage].map((value) => (value == null ? "unverified" : num(value, 4))).join(" / ") : "—", "costs_per_lot"],
+    ["Total loss per lot (price + costs)", sizing.loss_per_lot?.total != null ? `${num(sizing.loss_per_lot.total, 4)} ${cur}` : "Not established", "total_per_lot"],
+    ["Volume (theoretical → rounded down)", sizing.theoretical_volume != null ? `${num(sizing.theoretical_volume, 4)} → ${sizing.volume ?? "below minimum"}` : "—"],
+    ["Broker volume", sizing.broker_volume ? `min ${sizing.broker_volume.min} · max ${sizing.broker_volume.max} · step ${sizing.broker_volume.step} · contract ${sizing.broker_volume.contract_size}` : "—"],
+    ["MT5 calculator (loss / reward)", sizing.mt5_calculator ? `${num(sizing.mt5_calculator.loss_at_stop)} / ${num(sizing.mt5_calculator.reward_at_target)} ${cur}` : "—"],
+  ];
+  const dailyRows = [
+    ["Status", daily.status ?? "—", "daily_status"],
+    ["Reference capital", daily.reference_capital ? `${num(daily.reference_capital.value)} ${cur} · min(balance, equity) = ${daily.reference_capital.from}` : "Unverified", "daily_reference"],
+    ["Trading day (broker server)", daily.trading_day ? `${stamp(daily.trading_day.start_utc)} → ${stamp(daily.trading_day.end_utc)}` : "—"],
+    ["Daily limit", daily.limit != null ? `${num(daily.limit)} ${cur} (${num(data.policy.max_daily_risk * 100, 1)}%)` : "—", "daily_limit"],
+    ["Realised losses today", daily.realised_losses != null ? `${num(daily.realised_losses)} ${cur}` : "Unverified"],
+    ["Open position risk", daily.open_position_risk != null ? `${num(daily.open_position_risk)} ${cur} (${daily.positions} open)` : "Unverified"],
+    ["Pending order risk", daily.pending_order_risk != null ? `${num(daily.pending_order_risk)} ${cur} (${daily.pending_orders} pending)` : "Unverified"],
+    ["Remaining allowance", daily.remaining != null ? `${num(daily.remaining)} ${cur}` : "Unverified", "daily_remaining"],
+  ];
+  const marginRows = [
+    ["MT5 margin calculator", margin.mt5_calculator != null ? `${num(margin.mt5_calculator, 4)} ${cur}` : "—"],
+    ["Formula (contract × volume × rate / leverage)", margin.formula != null ? `${num(margin.formula, 4)} ${cur}` : "—"],
+    ["Free margin after", margin.free_margin_after != null ? `${num(margin.free_margin_after)} ${cur}` : "—", "free_margin_after"],
+    ["Margin level after", margin.margin_level_after_percent != null ? `${num(margin.margin_level_after_percent, 0)} %` : "—"],
+  ];
+  const validations = RISK_AREAS.map(([areaKey, label]) => {
+    const v = data.validations?.[areaKey] ?? { status: "not_evaluated", checks: [] };
+    return `<div class="info-row" data-validation="${areaKey}"><span>${esc(label)}</span><strong class="check-${v.status === "passed" ? "consistent" : v.status === "failed" ? "discrepancy" : "not_checkable"}">${esc(v.status.replaceAll("_", " "))}${v.checks.length ? `<small> · ${esc(v.checks.map((c) => c.detail).join("; "))}</small>` : ""}</strong></div>`;
+  }).join("");
+  const costs = data.costs ? riskRows([
+    ["Spread", `${data.costs.spread.points ?? "—"} points · ${data.costs.spread.treatment}`],
+    ["Commission", `${data.costs.commission.status} · ${data.costs.commission.treatment}${data.costs.commission.per_lot_round_trip != null ? ` (${data.costs.commission.per_lot_round_trip} ${cur}/lot round trip; ${data.costs.commission.source})` : ""}`, "cost_commission"],
+    ["Swap", `${data.costs.swap.status} · ${data.costs.swap.summary} (mode ${data.costs.swap.mode ?? "—"}; long ${plainNum(data.costs.swap.long_rate)}, short ${plainNum(data.costs.swap.short_rate)}; triple on ${data.costs.swap.triple_swap_day ?? "—"})`, "cost_swap"],
+    ["Slippage", `${data.costs.slippage.status} · ${data.costs.slippage.treatment}`, "cost_slippage"],
+    ["Net assumptions", (data.net_reward_risk?.assumptions ?? []).join(" · ")],
+  ]) : "";
+  return `${freshness}
+    <div class="risk-banner" id="risk-banner">${esc(data.note)}</div>
+    ${data.net_reward_risk?.status === "unverified" ? `<div class="risk-stale" id="risk-net-unverified">Net costs unverified: the 1:2 reward:risk requirement after costs is NOT established${data.costs?.slippage?.status === "unmodelled" ? " because slippage is unmodelled (no verified estimate or bound)" : ""}${data.costs?.commission?.status === "unverified" ? "; no verified commission rate" : ""}. The gross ratio alone does not qualify this proposal, and no volume is verified against the 0.5% limit.</div>` : ""}
+    ${data.rejection_reasons.length ? `<section class="panel"><div class="panel-head"><span class="panel-title">Rejection reasons</span><span class="panel-meta">${data.rejection_reasons.length}</span></div>${reasons(data.rejection_reasons, "rejections")}</section>` : ""}
+    ${data.unverified.length ? `<section class="panel"><div class="panel-head"><span class="panel-title">Unverified</span><span class="panel-meta">BLOCKS APPROVAL</span></div>${reasons(data.unverified, "unverified-list")}</section>` : ""}
+    <div class="account-grid">
+      <section class="panel"><div class="panel-head"><span class="panel-title">T6 technical setup</span><span class="panel-meta">${esc(data.symbol)}${data.broker_symbol ? ` · ${esc(data.broker_symbol)}` : ""} · ${esc(data.timeframe)}</span></div><div id="risk-setup">${riskRows(setupRows)}</div></section>
+      <section class="panel"><div class="panel-head"><span class="panel-title">Proposed trade parameters</span><span class="panel-meta">NOT AN ORDER</span></div><div id="risk-proposal">${p ? riskRows(proposalRows) : emptyState("No proposed parameters", "No trade was constructed; see the reasons above.")}</div></section>
+      <section class="panel"><div class="panel-head"><span class="panel-title">Daily risk</span><span class="panel-meta">${esc(String(daily.status ?? "—").toUpperCase())}</span></div><div id="risk-daily">${riskRows(dailyRows)}</div></section>
+    </div>
+    <div class="account-grid">
+      <section class="panel"><div class="panel-head"><span class="panel-title">Position sizing</span><span class="panel-meta">${esc(cur)}</span></div><div id="risk-sizing">${riskRows(riskRowsList)}</div></section>
+      <section class="panel"><div class="panel-head"><span class="panel-title">Margin</span><span class="panel-meta">READ-ONLY CALCULATION</span></div><div id="risk-margin">${riskRows(marginRows)}</div></section>
+      <section class="panel"><div class="panel-head"><span class="panel-title">Validations</span><span class="panel-meta">ALL MUST PASS</span></div><div class="info-list" id="risk-validations">${validations}</div></section>
+    </div>
+    ${costs ? `<section class="panel"><div class="panel-head"><span class="panel-title">Costs &amp; assumptions</span></div><div id="risk-costs">${costs}</div></section>` : ""}
+    ${data.warnings.length ? `<div class="panel-note account-note" id="risk-warnings">${data.warnings.map(esc).join(" · ")}</div>` : ""}`;
+}
+
+function riskPage() {
+  const status = state.risk.key === riskKey() ? state.risk.payload?.status : null;
+  return `${pageHeading("Risk Management", "Proposed trade parameters for manual review · read-only · no order execution", `<span id="risk-heading-badge">${riskStatusChip(status)}</span>`)}<div id="risk-content">${riskContent()}</div>`;
+}
+
+function renderRisk() {
+  if (state.page !== "risk") return;
+  const status = state.risk.key === riskKey() ? state.risk.payload?.status : null;
+  setInner(document.querySelector("#risk-heading-badge"), riskStatusChip(status));
+  setInner(document.querySelector("#risk-content"), riskContent());
+}
+
+async function refreshRisk(poller) {
+  const key = riskKey();
+  const [symbol, timeframe] = key.split("|");
+  const seq = ++state.risk.seq;
+  const query = new URLSearchParams({ symbol, timeframe });
+  const result = await fetchJson(`/api/risk/proposal?${query}`, poller, POLL.riskTimeoutMs);
+  if (result.aborted || seq !== state.risk.seq || key !== riskKey()) return "aborted";
+  const payload = result.payload;
+  const error = result.error ?? (typeof payload?.status === "string" && payload?.symbol === symbol && Array.isArray(payload?.rejection_reasons) ? null : malformed());
+  if (error) {
+    state.risk.error = error;
+  } else {
+    state.risk.payload = payload;
+    state.risk.key = key;
+    state.risk.receivedAt = Date.now();
+    state.risk.error = null;
+  }
+  renderRisk();
+  return !error;
+}
+
+// ---------------------------------------------------------------- decisions journal (P5.1)
+// The #signals route shows the decision journal (label "Decisions"). Read-only: the five
+// dimensions are shown separately, a candidate is never shown as approved or executed, and the
+// request-time coverage disclosure is always visible.
+const DECISIONS_EXPIRE_MS = 65000;
+const decisionsActive = () => state.page === "signals" && !state.error;
+const decisionsInterval = () => POLL.decisionsMs;
+const decisionsExpired = () => !state.decisions.receivedAt || Date.now() - state.decisions.receivedAt > DECISIONS_EXPIRE_MS;
+const pretty = (value) => String(value ?? "—").replaceAll("_", " ");
+const DIMENSION_TONE = { APPROVED: "verified", REJECTED: "invalid", UNVERIFIED: "unverified", NOT_EVALUATED: "not_applicable", NOT_APPROVED: "not_applicable", NONE: "not_applicable" };
+
+function dimensionChip(value, field) {
+  return `<span class="field-chip ${DIMENSION_TONE[value] ?? ""}" data-dimension="${esc(field)}">${esc(pretty(value))}</span>`;
+}
+
+function journalStatusText(journal) {
+  if (!journal) return "—";
+  // A verified key is a prerequisite only; monitoring and reconciliation are not implemented.
+  const hmac = journal.hmac_prerequisite === "verified"
+    ? "HMAC prerequisite verified"
+    : `HMAC prerequisite refused (key ${pretty(journal.key_status)})`;
+  const capability = `monitoring and reconciliation ${pretty(journal.monitoring_and_reconciliation)}`;
+  return `${pretty(journal.state)} · schema v${journal.schema_version} · ${hmac} · ${capability} · ${journal.captured ?? 0} captured this session · ${journal.capture_failures ?? 0} capture failures`;
+}
+
+function decisionsContent() {
+  const { payload, error } = state.decisions;
+  if (!payload) {
+    if (error) return `<section class="panel">${emptyState("Decision journal unavailable", `${error.message || reasonText(error.reason)}`, "error-state")}</section>`;
+    return `<section class="panel">${emptyState("Loading", "Waiting for the decision journal.")}</section>`;
+  }
+  const stale = Boolean(error) || decisionsExpired();
+  const rows = payload.decisions.map((d) => `<tr data-decision="${esc(d.id)}">
+      <td>${esc(stampSeconds(d.last_seen_utc))}</td>
+      <td>${esc(d.symbol)} · ${esc(d.timeframe)}</td>
+      <td data-col="outcome">${esc(pretty(d.analysis_outcome))}${d.t6_rule ? ` · ${esc(d.t6_rule)}` : ""}</td>
+      <td data-col="direction">${esc(d.market_direction)}</td>
+      <td data-col="risk">${dimensionChip(d.risk_status, "risk")}</td>
+      <td data-col="eligibility">${dimensionChip(d.trade_eligibility, "eligibility")}</td>
+      <td data-col="execution">${dimensionChip(d.execution_status, "execution")}</td>
+      <td class="num">${esc(d.observations)}</td>
+      <td data-col="state">${esc(pretty(d.state))}</td>
+    </tr>`).join("");
+  return `${stale ? `<div class="risk-stale" id="decisions-stale">Not current: last refreshed ${esc(stampSeconds(new Date(state.decisions.receivedAt).toISOString()))}${error ? ` · ${esc(error.message || reasonText(error.reason))}` : ""}.</div>` : ""}
+    <div class="risk-banner" id="decisions-coverage">${esc(payload.coverage?.note ?? "")}</div>
+    <div class="panel-note account-note" id="decisions-journal">Journal: ${esc(journalStatusText(payload.journal))}</div>
+    <section class="panel"><div class="panel-head"><span class="panel-title">Recorded decisions</span><span class="panel-meta">ANALYSIS · RISK · ELIGIBILITY · EXECUTION (SEPARATE)</span></div>
+      ${payload.decisions.length ? `<div class="table-scroll"><table class="data-table decisions-table" id="decisions-table"><thead><tr><th>Last seen</th><th>Market</th><th>Analysis outcome</th><th>Direction</th><th>Risk</th><th>Eligibility</th><th>Execution</th><th class="num">Seen</th><th>State</th></tr></thead><tbody>${rows}</tbody></table></div>`
+        : emptyState("No decisions recorded yet", "Decisions are recorded when the application requests an analysis or a risk proposal.")}
+    </section>
+    <div class="panel-note account-note">A market-analysis candidate is not an approved trade. Eligibility is APPROVED only for a candidate whose latest risk assessment is APPROVED. Execution stays NONE until a trade is recorded (later milestone). Johanna places no orders.</div>`;
+}
+
+function decisionsPage() {
+  return `${pageHeading("Decisions", "Recorded market-analysis decisions and risk assessments · read-only")}<div id="decisions-content">${decisionsContent()}</div>`;
+}
+
+function renderDecisions() {
+  if (state.page !== "signals") return;
+  setInner(document.querySelector("#decisions-content"), decisionsContent());
+}
+
+async function refreshDecisions(poller) {
+  const seq = ++state.decisions.seq;
+  const result = await fetchJson("/api/journal/decisions?limit=50", poller, POLL.decisionsTimeoutMs);
+  if (result.aborted || seq !== state.decisions.seq) return "aborted";
+  const payload = result.payload;
+  const error = result.error ?? (Array.isArray(payload?.decisions) && payload?.coverage ? null : malformed());
+  if (error) {
+    state.decisions.error = error;
+  } else {
+    state.decisions.payload = payload;
+    state.decisions.receivedAt = Date.now();
+    state.decisions.error = null;
+  }
+  renderDecisions();
+  return !error;
+}
+
 function dataPage(id) {
+  if (id === "signals") return decisionsPage();
+  if (id === "account") return accountPage();
+  if (id === "risk") return riskPage();
   if (id === "charts") return `${pageHeading("Charts", "Candlesticks fetched from MT5 on demand")}${quoteStripMarkup()}${chartMarkup(true)}${analysisPanelFull()}`;
   if (id === "markets") return `${pageHeading("Markets", "Live quotes from MT5", `<span id="market-heading-badge">${statusBadge(marketStatus())}</span>`)}
     <section class="panel"><div class="panel-head"><span class="panel-title">Currency pairs</span><span class="panel-meta">BID · ASK · SPREAD IN PIPS</span></div>${watchlistMarkup(true)}</section>
@@ -1621,9 +2829,12 @@ function barsInterval() {
 }
 
 // Expiry needs no response to happen: re-render the moment stored data stops counting as live.
-let expiryShown = { quotes: false, bars: false, analysis: "" };
+let expiryShown = { quotes: false, bars: false, analysis: "", account: false, risk: false, decisions: false };
 function checkExpiry() {
-  const now = { quotes: quotesExpired(), bars: barsExpired(), analysis: analysisSignature() };
+  const now = { quotes: quotesExpired(), bars: barsExpired(), analysis: analysisSignature(), account: accountExpired(), risk: riskExpired(), decisions: decisionsExpired() };
+  if (now.account !== expiryShown.account) renderAccount();
+  if (now.decisions !== expiryShown.decisions) renderDecisions();
+  if (now.risk !== expiryShown.risk) renderRisk();
   if (now.quotes !== expiryShown.quotes) renderLive();
   else if (now.bars !== expiryShown.bars) renderChartArea();
   if (now.analysis !== expiryShown.analysis) renderAnalysis();
@@ -1636,11 +2847,14 @@ const livePolling = {
   bars: createPoller("bars", refreshBars, barsInterval),
   dashboard: createPoller("dashboard", () => loadDashboard({ background: true }), () => POLL.dashboardMs),
   analysis: createPoller("analysis", refreshAnalysis, analysisInterval, analysisActive),
+  account: createPoller("account", refreshAccount, accountInterval, accountActive),
+  risk: createPoller("risk", refreshRisk, riskInterval, riskActive),
+  decisions: createPoller("decisions", refreshDecisions, decisionsInterval, decisionsActive),
   started: false,
   expiryTimer: null,
   listeners: null,
 };
-const pollers = () => [livePolling.quotes, livePolling.bars, livePolling.dashboard, livePolling.analysis];
+const pollers = () => [livePolling.quotes, livePolling.bars, livePolling.dashboard, livePolling.analysis, livePolling.account, livePolling.risk, livePolling.decisions];
 
 function onVisibilityChange() {
   if (document.hidden) {
@@ -1650,6 +2864,9 @@ function onVisibilityChange() {
     livePolling.bars.now();
     livePolling.dashboard.now();
     livePolling.analysis.now(); // no-op unless analysis applies to this page and timeframe
+    livePolling.account.now(); // no-op unless the Account & Broker page is open
+    livePolling.risk.now(); // no-op unless the Risk Management page is open
+    livePolling.decisions.now(); // no-op unless the Decisions page is open
     checkExpiry();
   }
 }
@@ -1666,6 +2883,9 @@ function startLivePolling() {
   livePolling.bars.start(0);
   livePolling.dashboard.start(POLL.dashboardMs);
   livePolling.analysis.start(0);
+  livePolling.account.start(0);
+  livePolling.risk.start(0);
+  livePolling.decisions.start(0);
   livePolling.expiryTimer = setInterval(checkExpiry, 1000);
 }
 
@@ -1683,7 +2903,7 @@ function stopLivePolling() {
 function livePollingState() {
   const timers = pollers().filter((poller) => poller.timer !== null).length + (livePolling.expiryTimer ? 1 : 0);
   const info = (poller) => ({ inFlight: poller.inFlight, requests: poller.requests, failures: poller.failures, scheduled: poller.timer !== null, delay: poller.delay });
-  return { started: livePolling.started, timers, quotes: info(livePolling.quotes), bars: info(livePolling.bars), dashboard: info(livePolling.dashboard), analysis: info(livePolling.analysis) };
+  return { started: livePolling.started, timers, quotes: info(livePolling.quotes), bars: info(livePolling.bars), dashboard: info(livePolling.dashboard), analysis: info(livePolling.analysis), account: info(livePolling.account), risk: info(livePolling.risk), decisions: info(livePolling.decisions) };
 }
 
 // Kept for callers that ask for an immediate refresh.
@@ -1692,6 +2912,13 @@ const loadBars = () => livePolling.bars.now();
 
 // ---------------------------------------------------------------- events
 document.addEventListener("click", async (event) => {
+  // Annotations dropdown: toggle, select/clear all, close on any click outside it.
+  if (event.target.closest("[data-annotation-menu]")) return setAnnotationMenu(!state.overlay.menuOpen);
+  const all = event.target.closest("[data-annotation-all]");
+  if (all) return setAnnotations(Object.fromEntries(ANNOTATION_KEYS.map((key) => [key, all.dataset.annotationAll === "1"])));
+  if (state.overlay.menuOpen && !event.target.closest(".annotation-menu")) setAnnotationMenu(false);
+  const overlayMode = event.target.closest("[data-overlay-mode]");
+  if (overlayMode) return setOverlay(overlayMode.dataset.overlayMode === "analysis");
   const nav = event.target.closest("[data-page]");
   if (nav) {
     document.querySelector("#sidebar").classList.remove("open");
@@ -1736,7 +2963,18 @@ document.addEventListener("click", async (event) => {
   }
 });
 
+// The only keyboard shortcut: Escape closes the Annotations dropdown (one listener, never added
+// again; the page's CSP forbids inline handlers).
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && state.overlay.menuOpen) {
+    setAnnotationMenu(false);
+    document.querySelector("[data-annotation-menu]")?.focus();
+  }
+});
+
 document.addEventListener("change", (event) => {
+  const annotation = event.target.closest?.("[data-annotation-key]");
+  if (annotation) return setAnnotations({ [annotation.dataset.annotationKey]: annotation.checked });
   if (event.target.id === "pair-select") savePreferences({ selected_currency_pair: event.target.value });
   if (event.target.id === "timeframe-select" || event.target.id === "settings-timeframe") savePreferences({ selected_chart_timeframe: event.target.value });
   if (event.target.id === "mode-select") savePreferences({ operating_mode: event.target.value });
@@ -1748,6 +2986,13 @@ function showPage(page) {
   state.page = page;
   render();
   syncAnalysisPolling();
+  // Account polling exists only while the Account & Broker page is open.
+  if (accountActive()) livePolling.account.now();
+  else livePolling.account.suspend();
+  if (riskActive()) livePolling.risk.now();
+  else livePolling.risk.suspend();
+  if (decisionsActive()) livePolling.decisions.now();
+  else livePolling.decisions.suspend();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 

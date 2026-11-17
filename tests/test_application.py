@@ -70,6 +70,7 @@ def test_application_initializes_domain_services_and_disables_execution(tmp_path
         "risk_management",
         "broker_execution",
         "persistence",
+        "trading_journal",
     }
     # market_data is now a real service over stored bars. With no collectors_config there
     # is no monitoring worker, so it serves stored data ("idle") and says monitoring is

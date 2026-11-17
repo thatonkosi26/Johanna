@@ -223,3 +223,71 @@ h1 { font-size: 22px; line-height: 1.2; letter-spacing: -.025em; margin: 6px 0 0
 .dimension-provisional, .validation-provisional { color: var(--amber); }
 .dimension-fail, .validation-rejected { color: var(--red); }
 .analysis-section code, .analysis-list code { font: 9px var(--mono); color: var(--muted); }
+
+/* Analysis Overlay (V1): a second canvas over the price chart; never intercepts the pointer. */
+.overlay-canvas { position: absolute; pointer-events: none; }
+.overlay-canvas[hidden], .overlay-panel[hidden] { display: none; }
+.overlay-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 2px; overflow: hidden; }
+.overlay-mode { height: 30px; padding: 0 10px; border: 0; background: var(--panel); color: var(--muted); font-size: 10px; cursor: pointer; }
+.overlay-mode + .overlay-mode { border-left: 1px solid var(--line); }
+.overlay-mode[aria-pressed="true"] { background: var(--panel-raised); color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+.overlay-mode:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.overlay-panel { padding: 7px 12px 6px; border-bottom: 1px solid var(--line-soft); font-size: 10px; color: var(--muted); }
+.overlay-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.overlay-fact { font: 9px var(--mono); color: var(--text); }
+.overlay-fact span { color: var(--dim); text-transform: uppercase; letter-spacing: .04em; margin-right: 3px; }
+.overlay-fact.untrusted { color: var(--amber); }
+.overlay-message { color: var(--muted); }
+.overlay-times { margin-top: 5px; color: var(--dim); font: 9px var(--mono); }
+.overlay-details { margin-top: 4px; }
+.overlay-details summary { cursor: pointer; color: var(--dim); font-size: 9px; }
+.overlay-details ul { margin: 4px 0 0; padding-left: 16px; line-height: 1.55; }
+.overlay-skipped { color: var(--dim); }
+
+/* Annotations dropdown (chart toolbar, Charts page): per-layer overlay visibility. */
+.annotation-menu { position: relative; }
+.annotation-button { height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 2px; background: var(--panel); color: var(--muted); font-size: 10px; cursor: pointer; }
+.annotation-button[aria-expanded="true"] { color: var(--text); background: var(--panel-raised); }
+.annotation-button:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.annotation-panel { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; width: 248px; max-height: min(70vh, 460px); overflow-y: auto; padding: 8px 10px; border: 1px solid var(--line); background: var(--panel); box-shadow: 0 6px 18px rgba(0, 0, 0, .28); font-size: 10px; color: var(--muted); }
+.annotation-panel[hidden] { display: none; }
+.annotation-actions { display: flex; gap: 6px; margin-bottom: 6px; }
+.annotation-actions button { flex: 1; height: 24px; border: 1px solid var(--line); background: var(--panel-raised); color: var(--muted); font-size: 9px; cursor: pointer; border-radius: 2px; }
+.annotation-group { border: 0; margin: 0 0 6px; padding: 0; }
+.annotation-group legend { padding: 0; margin-bottom: 3px; color: var(--dim); font: 9px var(--mono); text-transform: uppercase; letter-spacing: .04em; }
+.annotation-option { display: flex; align-items: center; gap: 6px; padding: 2px 0; color: var(--text); cursor: pointer; }
+.annotation-option input { margin: 0; accent-color: var(--accent); }
+.annotation-note { margin: 4px 0 0; color: var(--dim); font-size: 9px; line-height: 1.4; }
+.annotation-note[hidden] { display: none; }
+.overlay-outside { color: var(--dim); }
+@media (max-width: 760px) { .annotation-panel { position: fixed; left: 12px; right: 12px; top: auto; width: auto; max-height: 60vh; } }
+
+/* Account & Broker (Phase 3): read-only values; missing values are labelled chips, never 0. */
+.account-strip { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+.account-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+.field-chip { display: inline-flex; align-items: center; padding: 1px 5px; font: 600 8px var(--mono); letter-spacing: .06em; text-transform: uppercase; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; vertical-align: middle; }
+.field-chip.unavailable { color: var(--dim); border-style: dashed; }
+.field-chip.invalid, .field-chip.validation.invalid { color: var(--red); border-color: #6b3438; }
+.field-chip.unverified, .field-chip.validation.incomplete, .field-chip.validation.partial { color: var(--amber); border-color: #6b5a2f; }
+.field-chip.not_applicable { color: var(--muted); }
+.field-chip.validation.verified { color: var(--green); border-color: #2f6b4f; }
+.field-value.missing { color: var(--dim); }
+.instrument-table td.field-name { font: 10px var(--sans); color: var(--muted); }
+.instrument-table td, .instrument-table th { height: 32px; }
+.instrument-table .group-row td { height: 26px; color: var(--dim); font: 600 9px var(--sans); letter-spacing: .08em; text-transform: uppercase; background: var(--bg); }
+.check-consistent { color: var(--green) !important; }
+.check-discrepancy { color: var(--red) !important; }
+.check-not_checkable, .check-not_applicable { color: var(--muted) !important; }
+.info-row strong small { color: var(--dim); font-weight: 400; }
+.account-note { color: var(--dim); font-size: 9px; line-height: 1.6; padding: 4px 2px 12px; }
+@media (max-width: 1100px) { .account-grid { grid-template-columns: minmax(0, 1fr); } .account-strip { grid-template-columns: repeat(8, minmax(110px, 1fr)); overflow-x: auto; } }
+@media (max-width: 760px) { .account-strip { grid-template-columns: repeat(8, 115px); } .instrument-table { min-width: 560px; } }
+
+/* Risk Management (Phase 4): proposed parameters only; no action controls. */
+.risk-banner { border: 1px solid var(--line); background: var(--panel); color: var(--muted); font-size: 10px; line-height: 1.6; padding: 9px 13px; margin-bottom: 12px; }
+.risk-stale { border: 1px solid #6b5a2f; color: var(--amber); font-size: 10px; padding: 9px 13px; margin-bottom: 12px; }
+.risk-list { margin: 0; padding: 8px 13px 10px 28px; font-size: 10px; line-height: 1.7; }
+.risk-list strong { text-transform: uppercase; font: 600 9px var(--mono); letter-spacing: .06em; margin-right: 6px; }
+.risk-list.rejections strong { color: var(--red); }
+.risk-list.unverified-list strong { color: var(--amber); }
+#risk-validations .info-row, #risk-proposal .info-row { grid-template-columns: 120px minmax(0, 1fr); padding: 4px 0; }

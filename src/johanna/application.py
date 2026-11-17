@@ -9,10 +9,12 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from johanna.account_intelligence import AccountIntelligenceService
 from johanna.adapters.mt5 import ServerClock
 from johanna.collectors import CollectorConfig, run_configured_source
 from johanna.config import AppConfig, ConfigurationError
 from johanna.data_services import CalendarService, MarketDataService, iso_utc
+from johanna.decision_journal import LAST_CAPTURED_DECISION, CapturingAnalysis, DecisionJournal
 from johanna.domain.execution import DisabledExecutionService
 from johanna.domain.intelligence import UnimplementedIntelligenceService
 from johanna.domain.news import UnimplementedNewsService
@@ -20,9 +22,11 @@ from johanna.domain.risk import UnimplementedRiskService
 from johanna.domain.rules import UnimplementedRulesService
 from johanna.domain.signals import UnimplementedSignalService
 from johanna.instance_lock import InstanceLock
+from johanna.journal_store import JournalStore
 from johanna.live_market import LiveMarketService
 from johanna.market_analysis import MarketAnalysisService
 from johanna.persistence import PREFERENCE_DEFAULTS, ApplicationStore
+from johanna.risk_service import RiskService
 from johanna.services import ServiceManager
 
 LOGGER = logging.getLogger("johanna.application")
@@ -96,11 +100,28 @@ class JohannaApplication:
             live_clock = live_market._clock
         self.live_market = live_market
         self.market_analysis = MarketAnalysisService(self.live_market, clock=live_clock)
+        # Phase 3: read-only account and broker specifications, separate from T5/T6.
+        self.account = AccountIntelligenceService(self.live_market, clock=live_clock)
+        # Phase 4: proposed trade parameters for manual review (read-only, no execution).
+        # Phase 5 (P5.1): separate fail-closed trading journal; request-time decision capture.
+        self.journal_store = JournalStore(data_dir, clock=live_clock)
+        self.decisions = DecisionJournal(self.journal_store, clock=live_clock)
+        self.risk = RiskService(
+            CapturingAnalysis(self.market_analysis, self.decisions),
+            self.account,
+            self.live_market,
+            clock=live_clock,
+        )
         if services is not None:
             configured_services = [self.store, *services.services]
         else:
             configured_services = _services(
-                config, self.store, self.market_data, self.calendar, self.live_market
+                config,
+                self.store,
+                self.market_data,
+                self.calendar,
+                self.live_market,
+                self.journal_store,
             )
         self.services = ServiceManager(configured_services)
         self._started = False
@@ -199,6 +220,21 @@ class JohannaApplication:
         """Archived Parquet bars for the CACHED fallback when MT5 is unavailable."""
         rows, error = self.market_data.read_bars()
         return [r for r in rows if r["symbol"] == pair and r["timeframe"] == timeframe], error
+
+    # -- Phase 5 decision journal (request-time capture; failures never affect responses) --
+    def capture_analysis(self, envelope: object) -> None:
+        self.decisions.capture_analysis(envelope, "analysis_request")
+
+    def risk_proposal(self, symbol: str, timeframe: str) -> dict[str, Any]:
+        """Phase 4 proposal, unchanged; afterwards its risk assessment is journaled against
+        the decision captured by the analysis made inside this same request."""
+        token = LAST_CAPTURED_DECISION.set(None)
+        try:
+            result = self.risk.proposal(symbol, timeframe)
+            self.decisions.capture_risk(result, LAST_CAPTURED_DECISION.get())
+        finally:
+            LAST_CAPTURED_DECISION.reset(token)
+        return result
 
     def health(self) -> tuple[bool, dict[str, object]]:
         """Healthy only when running, persistence is up and no service is in error."""
@@ -383,10 +419,12 @@ def _services(
     market_data: MarketDataService,
     calendar: CalendarService,
     live_market: LiveMarketService,
+    journal_store: JournalStore,
 ) -> list[Any]:
     integrations = config.integrations
     return [
         store,
+        journal_store,  # never raises on start: a refused journal leaves the rest running
         live_market,
         market_data,
         calendar,

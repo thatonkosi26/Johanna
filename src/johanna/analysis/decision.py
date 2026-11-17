@@ -17,9 +17,11 @@ opening, protecting or closing a position are produced. Pure: no clock, no I/O, 
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import copy
 import math
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Any
@@ -656,6 +658,27 @@ def evaluate_market_snapshot(
     return result
 
 
+# Visualisation capture (overlay V1 phase 2): lets a caller receive the T5 object of the one
+# pipeline run it triggers, without changing any public signature or return value.
+_ANALYSIS_CAPTURE: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
+    "johanna_analysis_capture", default=None
+)
+
+
+@contextlib.contextmanager
+def capture_analysis() -> Iterator[dict[str, Any]]:
+    """Within this block, each constructed evaluation also hands its very T5 object (EMA series
+    kept, ``analyse_window(include_series=True)``), T4 validation and T6 result to the yielded
+    dict (``runs`` counts evaluations). Outside it nothing changes. Context-local: concurrent
+    threads never see each other's capture."""
+    box: dict[str, Any] = {"runs": 0, "analysis": None, "validation": None, "result": None}
+    token = _ANALYSIS_CAPTURE.set(box)
+    try:
+        yield box
+    finally:
+        _ANALYSIS_CAPTURE.reset(token)
+
+
 def evaluate_market_snapshot_with_validation(
     snapshot: Mapping[str, Any],
     *,
@@ -695,7 +718,8 @@ def _evaluate_constructed(
     """The single constructed pipeline: deep copy, then T4 -> T5 -> T6 (§1.5).
 
     Returns ``(result, validation)``; ``validation`` is the very object passed to T5 and T6,
-    or ``None`` when the pipeline refuses before T4.
+    or ``None`` when the pipeline refuses before T4. Inside ``capture_analysis()`` the T5
+    object of this same run (with its EMA series kept) is also handed to the capture.
     """
     work = copy.deepcopy(snapshot)
     if not isinstance(analysed_at, datetime) or analysed_at.utcoffset() is None:
@@ -724,8 +748,15 @@ def _evaluate_constructed(
         excluded_opens=list(excluded_opens),
         peers=peers,
     )
-    analysis = analyse_window(work, validation)
+    capture = _ANALYSIS_CAPTURE.get()
+    if capture is None:  # the accepted path, unchanged
+        analysis = analyse_window(work, validation)
+    else:  # same single T5 run, EMA series kept for visualisation
+        analysis = analyse_window(work, validation, include_series=True)
     result = _evaluate(
         work, validation, analysis, provenance_mode="constructed", parameters=parameters
     )
+    if capture is not None:
+        capture["runs"] += 1
+        capture["analysis"], capture["validation"], capture["result"] = analysis, validation, result
     return result, validation

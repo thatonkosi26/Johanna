@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import Callable
 from http import HTTPStatus
 from mimetypes import guess_type
@@ -32,8 +33,23 @@ _ROUTES: dict[str, frozenset[str]] = {
     "/api/market/bars": frozenset({"GET"}),
     "/api/market/snapshot": frozenset({"GET"}),
     "/api/market/analysis": frozenset({"GET"}),
+    "/api/account/summary": frozenset({"GET"}),
+    "/api/account/instruments": frozenset({"GET"}),
+    "/api/risk/proposal": frozenset({"GET"}),
+    "/api/journal/decisions": frozenset({"GET"}),
 }
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+# GET /api/account/instruments/{symbol}: a supported pair or its broker symbol.
+_INSTRUMENT_PREFIX = "/api/account/instruments/"
+# GET /api/journal/decisions/{id}: a journal decision (ULID).
+_DECISION_PREFIX = "/api/journal/decisions/"
+_ULID = re.compile(r"[0-9A-HJKMNP-TV-Z]{26}")
+_JOURNAL_FILTERS = {
+    "outcome": ("TRADE_CANDIDATE", "MARKET_CONDITION", "NO_TRADE"),
+    "eligibility": ("APPROVED", "NOT_APPROVED"),
+    "execution": ("NONE", "MANUALLY_RECORDED", "BROKER_VERIFIED"),
+}
+_INSTRUMENT_SYMBOL = re.compile(r"[A-Za-z0-9._-]{3,20}")
 
 
 class BackendAPI:
@@ -60,6 +76,14 @@ class BackendAPI:
                         start_response, HTTPStatus.NOT_FOUND, {"error": "not_found"}
                     )
                 return self._static(start_response, asset)
+            if path.startswith(_DECISION_PREFIX):
+                if method != "GET":
+                    return self._method_not_allowed(start_response, {"GET"})
+                return self._journal_decision(path, start_response)
+            if path.startswith(_INSTRUMENT_PREFIX):
+                if method != "GET":
+                    return self._method_not_allowed(start_response, {"GET"})
+                return self._account_instrument(path, start_response)
             allowed = _ROUTES.get(path)
             if allowed is None:
                 return self._response(start_response, HTTPStatus.NOT_FOUND, {"error": "not_found"})
@@ -85,6 +109,15 @@ class BackendAPI:
                 return self._market_bars(environ, start_response, snapshot=True)
             if path == "/api/market/analysis":
                 return self._market_analysis(environ, start_response)
+            if path == "/api/journal/decisions":
+                return self._journal_decisions(environ, start_response)
+            if path == "/api/risk/proposal":
+                return self._risk_proposal(environ, start_response)
+            if path == "/api/account/summary":
+                return self._account_payload(start_response, self.application.account.summary())
+            if path == "/api/account/instruments":
+                payload = self.application.account.instruments()
+                return self._account_payload(start_response, payload)
             return self._save_preferences(environ, start_response)
         except Exception:
             LOGGER.exception("Unhandled backend request error")
@@ -199,7 +232,138 @@ class BackendAPI:
                 },
             )
         payload = self.application.market_analysis.analyse(symbol, timeframe)
+        # P5.1 request-time journal capture: isolated, never alters or delays this response.
+        self.application.capture_analysis(payload)
         return self._response(start_response, HTTPStatus.OK, payload)
+
+    def _journal_unavailable(self, start_response: Callable) -> list[bytes] | None:
+        store = self.application.journal_store
+        if store.ready:
+            return None
+        status = store.status()
+        return self._response(
+            start_response,
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            {
+                "error": "journal_unavailable",
+                "reason": status["reason"] or status["state"],
+                "journal": status,
+            },
+        )
+
+    def _journal_decisions(self, environ: dict, start_response: Callable) -> list[bytes]:
+        """P5.1 decision history (read-only). Every response discloses request-time coverage."""
+        unavailable = self._journal_unavailable(start_response)
+        if unavailable is not None:
+            return unavailable
+        query = parse_qs(environ.get("QUERY_STRING", ""))
+        filters: dict[str, object] = {}
+        for name in ("symbol", "timeframe", "outcome", "eligibility", "execution"):
+            value = query.get(name, [""])[0].strip()
+            if not value:
+                continue
+            value = value.upper()
+            allowed = _JOURNAL_FILTERS.get(name)
+            valid = (
+                value in allowed
+                if allowed
+                else (SYMBOL_PATTERN.fullmatch(value) if name == "symbol" else value in TIMEFRAMES)
+            )
+            if not valid:
+                return self._response(
+                    start_response,
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": "invalid_journal_request", "message": f"invalid {name}"},
+                )
+            filters[name] = value
+        try:
+            limit = int(query.get("limit", ["50"])[0])
+            cursor_text = query.get("cursor", [""])[0]
+            cursor = int(cursor_text) if cursor_text else None
+            if not 1 <= limit <= 100 or (cursor is not None and cursor < 1):
+                raise ValueError
+        except ValueError:
+            return self._response(
+                start_response,
+                HTTPStatus.BAD_REQUEST,
+                {"error": "invalid_journal_request", "message": "limit 1-100; cursor from a page"},
+            )
+        payload = self.application.decisions.list(**filters, cursor=cursor, limit=limit)
+        payload["journal"] = self._journal_status()
+        return self._response(start_response, HTTPStatus.OK, payload)
+
+    def _journal_decision(self, path: str, start_response: Callable) -> list[bytes]:
+        decision_id = path.removeprefix(_DECISION_PREFIX)
+        if not _ULID.fullmatch(decision_id):
+            return self._response(start_response, HTTPStatus.NOT_FOUND, {"error": "not_found"})
+        unavailable = self._journal_unavailable(start_response)
+        if unavailable is not None:
+            return unavailable
+        payload = self.application.decisions.get(decision_id)
+        if payload is None:
+            return self._response(start_response, HTTPStatus.NOT_FOUND, {"error": "not_found"})
+        payload["journal"] = self._journal_status()
+        return self._response(start_response, HTTPStatus.OK, payload)
+
+    def _journal_status(self) -> dict[str, object]:
+        return {**self.application.journal_store.status(), **self.application.decisions.status()}
+
+    def _risk_proposal(self, environ: dict, start_response: Callable) -> list[bytes]:
+        """Phase 4 proposed trade parameters (read-only). Only ``symbol`` and ``timeframe``
+        are read: the risk policy is fixed in code and cannot be set through the API."""
+        query = parse_qs(environ.get("QUERY_STRING", ""))
+        # The symbol keeps its case: a broker symbol such as EURUSDc is accepted (F3).
+        symbol = query.get("symbol", [""])[0].strip()
+        timeframe = query.get("timeframe", ["H1"])[0].strip().upper()
+        service = self.application.risk
+        problem = (
+            "invalid symbol"
+            if not SYMBOL_PATTERN.fullmatch(symbol)
+            else service.supported(symbol, timeframe)
+        )
+        if problem:
+            return self._response(
+                start_response,
+                HTTPStatus.BAD_REQUEST,
+                {"error": "invalid_risk_request", "message": problem},
+            )
+        payload = self.application.risk_proposal(symbol, timeframe)  # journals the assessment
+        return self._response(start_response, HTTPStatus.OK, payload)
+
+    def _account_payload(self, start_response: Callable, payload: dict) -> list[bytes]:
+        """Phase 3 read-only account data. 503 when MT5 is unavailable and nothing validated
+        is cached; otherwise 200 with explicit ``status`` (LIVE/CACHED) and validation."""
+        if payload["status"] == "UNAVAILABLE":
+            return self._response(
+                start_response,
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                {"error": "account_unavailable", **payload},
+            )
+        return self._response(start_response, HTTPStatus.OK, payload)
+
+    def _account_instrument(self, path: str, start_response: Callable) -> list[bytes]:
+        symbol = path.removeprefix(_INSTRUMENT_PREFIX)
+        service = self.application.account
+        if not _INSTRUMENT_SYMBOL.fullmatch(symbol) or service.supported_pair(symbol) is None:
+            return self._response(
+                start_response,
+                HTTPStatus.NOT_FOUND,
+                {
+                    "error": "unsupported_symbol",
+                    "message": f"Supported instruments: {', '.join(service.pairs)}.",
+                },
+            )
+        payload = service.instrument(symbol)
+        if payload is None:
+            return self._response(
+                start_response,
+                HTTPStatus.NOT_FOUND,
+                {
+                    "error": "unsupported_symbol",
+                    "message": "That broker symbol is not the one this broker uses for the pair.",
+                },
+            )
+        return self._account_payload(start_response, payload)
 
     def _save_preferences(self, environ: dict, start_response: Callable) -> list[bytes]:
         content_type = environ.get("CONTENT_TYPE", "").split(";", 1)[0].strip().lower()

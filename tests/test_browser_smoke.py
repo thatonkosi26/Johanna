@@ -47,7 +47,7 @@ NAV = {
     "markets": "Markets",
     "calendar": "Economic Calendar",
     "news": "News",
-    "signals": "Trading Signals",
+    "signals": "Decisions",
     "rules": "Trading Rules",
     "risk": "Risk Management",
     "positions": "Positions",

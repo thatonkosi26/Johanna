@@ -467,6 +467,115 @@ class MT5Session:
 
         return self._run(job)
 
+    def broker(self, pairs: Sequence[str]) -> dict[str, Any]:
+        """Raw account and instrument properties for Phase 3 (read-only; validated elsewhere).
+
+        Account first, then each symbol's specification and tick, then the server identity is
+        read again: the reads are sequential on one connection, not atomic, so each part
+        carries its own retrieval time and the caller can detect a server change mid-read.
+        """
+
+        def job(adapter: MetaTrader5Adapter) -> dict[str, Any]:
+            account = adapter.account_snapshot()
+            account_retrieved = self._clock()
+            symbols: dict[str, dict[str, Any]] = {}
+            for pair in pairs:
+                symbol = self._broker_symbol(adapter, pair)
+                if symbol is None:
+                    symbols[pair] = {"error": "symbol_not_offered"}
+                    continue
+                self._format(adapter, symbol)  # selects it into Market Watch if hidden
+                spec = adapter.symbol_snapshot(symbol)
+                tick = adapter.get_tick(symbol)
+                real = _is_real_tick(tick)
+                symbols[pair] = {
+                    "broker_symbol": symbol,
+                    "spec": spec,
+                    "tick": {
+                        "bid": tick.get("bid") if real else None,
+                        "ask": tick.get("ask") if real else None,
+                        "time_utc": tick.get("time_utc") if real else None,
+                    },
+                    "retrieved_at": self._clock(),
+                }
+            return {
+                **account,
+                "account_retrieved_at": account_retrieved,
+                "symbols": symbols,
+                "identity_after": adapter.server_identity(),
+            }
+
+        return self._run(job)
+
+    def exposure(self, day_start_utc: datetime) -> dict[str, Any]:
+        """Phase 4: open positions, pending orders and today's deals (read-only).
+
+        The risk to stop-loss of each position and pending order is computed here with MT5's
+        own profit calculator, on the same connection. ``None`` risk means no stop-loss.
+        """
+
+        def job(adapter: MetaTrader5Adapter) -> dict[str, Any]:
+            clock = adapter.server_clock
+            now = self._clock()
+            raw = adapter.exposure_snapshot(clock.from_utc(day_start_utc), clock.from_utc(now))
+            retrieved = self._clock()
+            for item in raw["positions"]:
+                side = {0: "buy", 1: "sell"}.get(item.get("type"))
+                item["side"] = side
+                item["risk_to_stop"] = _risk_to_stop(
+                    adapter,
+                    side,
+                    item.get("symbol"),
+                    item.get("volume"),
+                    item.get("price_open"),
+                    item.get("sl"),
+                )
+            for item in raw["orders"]:
+                code = item.get("type")
+                side = None
+                if isinstance(code, int) and 2 <= code <= 7:
+                    side = "buy" if code % 2 == 0 else "sell"
+                item["side"] = side
+                if code in (6, 7):  # BUY/SELL stop-limit: execution at the limit price
+                    item["risk_to_stop"] = _stop_limit_risk(adapter, side, item)
+                    continue
+                item["risk_to_stop"] = _risk_to_stop(
+                    adapter,
+                    side,
+                    item.get("symbol"),
+                    item.get("volume_current"),
+                    item.get("price_open"),
+                    item.get("sl"),
+                )
+            for deal in raw["deals"]:
+                seconds = deal.get("time")
+                deal["time_utc"] = clock.to_utc(float(seconds)) if seconds is not None else None
+            return {**raw, "day_start_utc": day_start_utc, "retrieved_at": retrieved}
+
+        return self._run(job)
+
+    def risk_calc(self, requests: Sequence[tuple]) -> list[dict[str, Any]]:
+        """Phase 4: MT5 calculator results for ``("profit", side, symbol, volume, open, close)``
+        and ``("margin", side, symbol, volume, price)`` requests. Per-request failures are
+        returned as ``{"error": ...}``; calculations only, nothing is sent to the server."""
+
+        def job(adapter: MetaTrader5Adapter) -> list[dict[str, Any]]:
+            results = []
+            for request in requests:
+                kind, args = request[0], request[1:]
+                try:
+                    if kind == "profit":
+                        results.append({"value": adapter.calc_profit(*args)})
+                    elif kind == "margin":
+                        results.append({"value": adapter.calc_margin(*args)})
+                    else:
+                        results.append({"error": f"unknown calculation {kind!r}"})
+                except (MT5AdapterError, ValueError, TypeError) as exc:
+                    results.append({"error": str(exc)})
+            return results
+
+        return self._run(job)
+
     # -- internals
     def _run(self, job: Callable[[MetaTrader5Adapter], Any]) -> dict[str, Any]:
         try:
@@ -539,6 +648,57 @@ class MT5Session:
                 adapter.select_symbol(symbol)
             self._formats[symbol] = fmt
         return self._formats[symbol]
+
+
+def _risk_to_stop(
+    adapter: MetaTrader5Adapter,
+    side: str | None,
+    symbol: Any,
+    volume: Any,
+    price_open: Any,
+    sl: Any,
+) -> dict[str, Any]:
+    """Money at risk from the open price to the stop-loss (MT5 calculator; read-only)."""
+    if side is None or not isinstance(symbol, str):
+        return {"status": "unverified", "reason": "unknown position or order type"}
+    if not sl:
+        return {"status": "unbounded", "reason": "no stop-loss set"}
+    try:
+        value = adapter.calc_profit(side, symbol, float(volume), float(price_open), float(sl))
+    except (MT5AdapterError, TypeError, ValueError) as exc:
+        return {"status": "unverified", "reason": str(exc)}
+    # A stop beyond the open price in the profitable direction locks in a gain: no risk.
+    return {"status": "verified", "amount": max(0.0, -value), "calculator_result": value}
+
+
+def _stop_limit_risk(adapter: MetaTrader5Adapter, side: str | None, item: dict) -> dict[str, Any]:
+    """F4: a stop-limit order is filled at its limit price (or better), never assumed at the
+    trigger. Risk is the larger of the two entry prices to the stop-loss; without a readable
+    limit price the exposure cannot be bounded -> unverified."""
+    trigger, limit = item.get("price_open"), item.get("price_stoplimit")
+    valid = [
+        p
+        for p in (trigger, limit)
+        if isinstance(p, int | float) and not isinstance(p, bool) and math.isfinite(p) and p > 0
+    ]
+    if len(valid) != 2:
+        return {"status": "unverified", "reason": "stop-limit trigger or limit price unreadable"}
+    results = [
+        _risk_to_stop(
+            adapter, side, item.get("symbol"), item.get("volume_current"), price, item.get("sl")
+        )
+        for price in (trigger, limit)
+    ]
+    for result in results:
+        if result["status"] != "verified":
+            return result  # unbounded (no stop-loss) or unverified
+    worst = max(results, key=lambda result: result["amount"])
+    return {
+        **worst,
+        "basis": "stop-limit: larger risk of the trigger and limit entry prices",
+        "risk_at_trigger": results[0]["amount"],
+        "risk_at_limit": results[1]["amount"],
+    }
 
 
 # ====================================================================== runners
@@ -1077,6 +1237,39 @@ class LiveMarketService:
             if status in statuses:
                 return status
         return UNAVAILABLE
+
+    # -- account and broker (Phase 3)
+    def broker_read(self, pairs: Sequence[str]) -> dict[str, Any]:
+        """One read-only account + instrument read on the quotes worker's connection.
+
+        Returns ``{"identity": ..., "value": ...}`` (identity as read before the job) or raises
+        ``MarketUnavailable``. Not cached here; ``AccountIntelligenceService`` owns caching
+        and validation. Uses the existing worker, so no additional MT5 connection is opened
+        and calls never run concurrently with quotes.
+        """
+        return self._worker_read("broker", (tuple(dict.fromkeys(pairs)),))
+
+    def exposure_read(self, day_start_utc: datetime) -> dict[str, Any]:
+        """Phase 4: positions, pending orders and deals since ``day_start_utc`` (read-only)."""
+        return self._worker_read("exposure", (day_start_utc,))
+
+    def risk_calculations(self, requests: Sequence[tuple]) -> dict[str, Any]:
+        """Phase 4: MT5 calculator results (``order_calc_profit``/``order_calc_margin``)."""
+        return self._worker_read("risk_calc", (tuple(requests),))
+
+    def _worker_read(self, op: str, args: tuple) -> dict[str, Any]:
+        """One read-only job on the quotes worker; ``{"identity", "value"}``."""
+        try:
+            payload = self._quote_runner.run(op, args, self.request_timeout)
+        except MarketUnavailable as exc:
+            with self._lock:
+                self._unavailable = exc
+            raise
+        with self._lock:
+            self._identity = payload["identity"]
+            self._unavailable = None
+            self._last_success = self._clock()
+        return payload
 
     # -- bars
     def bars(self, pair: str, timeframe: str, count: int = 300) -> dict[str, Any]:

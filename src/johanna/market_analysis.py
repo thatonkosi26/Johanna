@@ -37,6 +37,7 @@ from typing import Any
 from johanna.analysis.decision import (
     DEFAULT_DECISION_PARAMETERS,
     DecisionParameters,
+    capture_analysis,
     evaluate_market_snapshot_with_validation,
     required_candles,
 )
@@ -128,9 +129,11 @@ class MarketAnalysisService:
         snapshot = self._live.snapshot(symbol, timeframe, count)
         fetched = self._monotonic()
         analysed_at = self._clock()  # read after the snapshot returned
-        evaluated = evaluate_market_snapshot_with_validation(
-            snapshot, analysed_at=analysed_at, parameters=self._parameters
-        )
+        # The capture hands over the T5 object of this same (single) evaluation for the overlay.
+        with capture_analysis() as captured:
+            evaluated = evaluate_market_snapshot_with_validation(
+                snapshot, analysed_at=analysed_at, parameters=self._parameters
+            )
         finished = self._monotonic()
         result = evaluated["result"]
         snapshot_ms = round((fetched - started) * 1000, 3)
@@ -160,6 +163,7 @@ class MarketAnalysisService:
             "snapshot": _snapshot_summary(snapshot),
             "window_validation": _window_validation(evaluated["validation"], result),
             "result": result,
+            "overlay": overlay_payload(result, evaluated["validation"], captured),
         }
 
     def _envelope(self, computation: dict[str, Any], *, joined: bool) -> dict[str, Any]:
@@ -180,6 +184,8 @@ class MarketAnalysisService:
             if joined
             else computation["window_validation"],
             "result": copy.deepcopy(result) if joined else result,
+            # Additive (overlay V1 phase 2): visualisation data from the same evaluation.
+            "overlay": copy.deepcopy(computation["overlay"]) if joined else computation["overlay"],
         }
 
 
@@ -194,6 +200,132 @@ def _data_age_ms(snapshot: Any, analysed_at: datetime) -> float | None:
     except Exception:  # malformed snapshot: T6 itself reports why; the age is just unknown
         return None
     return None if seconds is None else round(seconds * 1000, 3)
+
+
+OVERLAY_VERSION = 1
+OVERLAY_LIMIT = 300  # analysed candles, matching the dashboard chart's 300-bar request
+
+
+def overlay_payload(
+    result: Any, validation: Any, captured: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Visualisation data (EMA series, confirmed swings) from the one evaluation's own T5 object.
+
+    Nothing is calculated here: values, timestamps and swing records are copied from T5
+    (``analyse_window(include_series=True)``) and T4. Coverage is deterministic: the most recent
+    ``OVERLAY_LIMIT`` candles of the T4 analysis window (all of it when shorter), ending at the
+    last analysed candle; ``coverage.truncated`` says whether older analysed candles exist.
+    ``status``: ``available``; ``partial`` (some component missing or not warmed up, listed in
+    ``reasons``); ``unavailable`` (no usable analysis, e.g. a rejected window).
+    """
+    result = result if isinstance(result, dict) else {}
+    inputs = result.get("inputs") or {}
+    window = inputs.get("window") or {}
+    provenance = inputs.get("provenance") or {}
+    base: dict[str, Any] = {
+        "overlay_version": OVERLAY_VERSION,
+        "snapshot_id": inputs.get("snapshot_id"),
+        "symbol": result.get("symbol"),
+        "broker_symbol": result.get("broker_symbol"),
+        "timeframe": result.get("timeframe"),
+        "window": {key: window.get(key) for key in ("count", "first_t", "last_t")},
+        "last_analysed_t": window.get("last_t"),
+        "as_of_utc": result.get("as_of_utc"),
+        "validation_verdict": inputs.get("validation_verdict"),
+        "analysis_status": inputs.get("analysis_status"),
+        "provenance": {"mode": provenance.get("mode"), "passed": provenance.get("passed")},
+    }
+
+    def unavailable(reason: str) -> dict[str, Any]:
+        return {
+            **base,
+            "status": "unavailable",
+            "reasons": [reason],
+            "coverage": None,
+            "ema": {},
+            "swings": None,
+        }
+
+    captured = captured or {}
+    analysis = captured.get("analysis")
+    if captured.get("runs") != 1 or not isinstance(analysis, dict):
+        return unavailable("the analysis object of this evaluation was not available")
+    if captured.get("validation") is not validation or not isinstance(validation, dict):
+        return unavailable("the captured analysis does not belong to this validation")
+    if analysis.get("status") not in ("available", "partial", "provisional"):
+        return unavailable(f"T5 analysis status {analysis.get('status')!r}: nothing calculated")
+    candles = list((validation.get("window") or {}).get("candles") or [])
+    if not candles or candles[0] != window.get("first_t") or candles[-1] != window.get("last_t"):
+        return unavailable("the analysis window does not match its validation")
+    covered = candles[-OVERLAY_LIMIT:]
+    in_coverage = set(covered)
+    reasons: list[str] = []
+    ema: dict[str, Any] = {}
+    for summary in (analysis.get("indicators") or {}).get("ema") or []:
+        name = summary.get("name")
+        series = summary.get("series")
+        if not isinstance(series, list):
+            reasons.append(f"{name}: series not available")
+            continue
+        times = [point[0] for point in series]
+        if times != candles:  # T5 must have analysed exactly the T4 window, in order
+            return unavailable(f"{name}: T5 series timestamps differ from the analysis window")
+        convergence = summary.get("convergence") or {}
+        required = convergence.get("observations_required")
+        converged_from_t = (
+            times[required - 1]
+            if isinstance(required, int) and 0 < required <= len(times)
+            else None
+        )
+        status = summary.get("status")
+        if status != "available":
+            reasons.append(f"{name}: {status}")
+        ema[name] = {
+            "period": summary.get("period"),
+            "status": status,
+            "trusted": summary.get("trusted"),
+            "converged_from_t": converged_from_t,
+            "points": [[t, value] for t, value in series if t in in_coverage],
+        }
+    swings_t5 = (analysis.get("structure") or {}).get("swings") or {}
+    if swings_t5.get("status") != "available":
+        reasons.append(f"swings: {swings_t5.get('status')}")
+    confirmed = [
+        {
+            # Derived identifier: swing type + pivot time (unique per T5's one-pivot rule).
+            "id": f"{record.get('type')}@{record.get('pivot_t')}",
+            "type": record.get("type"),
+            "price": record.get("price"),
+            "pivot_t": record.get("pivot_t"),
+            "confirmed_by_t": record.get("confirmed_by_t"),
+            "confirmed_at_utc": record.get("confirmed_at_utc"),
+            "confirmation_status": record.get("confirmation_status"),
+        }
+        for record in swings_t5.get("confirmed") or []
+        if record.get("pivot_t") in in_coverage
+    ]
+    return {
+        **base,
+        "status": "partial" if reasons else "available",
+        "reasons": reasons,
+        "coverage": {
+            "first_t": covered[0],
+            "last_t": covered[-1],
+            "count": len(covered),
+            "limit": OVERLAY_LIMIT,
+            "truncated": len(candles) > len(covered),
+            "selection": "the most recent candles of the analysis window, ending at the last "
+            "analysed candle",
+        },
+        "ema": ema,
+        "swings": {
+            "status": swings_t5.get("status"),
+            "trusted": swings_t5.get("trusted"),
+            "k": swings_t5.get("k"),
+            "confirmed": confirmed,
+            "pending_excluded": len(swings_t5.get("pending") or []),
+        },
+    }
 
 
 _COPIED_FIELDS = ("window_version", "snapshot_id", "evaluated_at_utc", "requested")

@@ -397,7 +397,13 @@ def test_no_monitor_without_collectors_config_or_for_twelve_data(tmp_path) -> No
 def test_persistence_starts_first_and_stops_last(tmp_path) -> None:
     app = JohannaApplication(_config(tmp_path))
     names = [service.name for service in app.services.services]
-    assert names[:4] == ["persistence", "live_market", "market_data", "economic_calendar"]
+    assert names[:5] == [
+        "persistence",
+        "trading_journal",
+        "live_market",
+        "market_data",
+        "economic_calendar",
+    ]
 
 
 def test_second_application_on_same_data_dir_is_refused(tmp_path) -> None:

@@ -64,6 +64,117 @@ _SYMBOL_SPEC_FIELDS = {
 }
 
 
+# Account fields that may leave the MT5 worker (P3.1). An allowlist: ``login``, ``name`` and
+# any field added by a future package version are never copied, so they cannot reach the API,
+# the browser or the logs.
+ACCOUNT_FIELDS = (
+    "currency",
+    "currency_digits",
+    "balance",
+    "equity",
+    "profit",
+    "credit",
+    "margin",
+    "margin_free",
+    "margin_level",
+    "margin_mode",
+    "margin_so_mode",
+    "margin_so_call",
+    "margin_so_so",
+    "leverage",
+    "limit_orders",
+    "trade_allowed",
+    "trade_expert",
+    "trade_mode",
+    "company",
+    "server",
+)
+TERMINAL_FIELDS = ("connected", "trade_allowed", "tradeapi_disabled", "build")
+# Symbol properties read for broker instrument specifications (P3.2), by MT5 field name.
+SYMBOL_FIELDS = (
+    "name",
+    "path",
+    "description",
+    "visible",
+    "currency_base",
+    "currency_profit",
+    "currency_margin",
+    "trade_contract_size",
+    "digits",
+    "point",
+    "trade_tick_size",
+    "trade_tick_value",
+    "trade_tick_value_profit",
+    "trade_tick_value_loss",
+    "volume_min",
+    "volume_max",
+    "volume_step",
+    "volume_limit",
+    "trade_calc_mode",
+    "trade_exemode",
+    "order_mode",
+    "filling_mode",
+    "expiration_mode",
+    "trade_stops_level",
+    "trade_freeze_level",
+    "trade_mode",
+    "swap_mode",
+    "swap_long",
+    "swap_short",
+    "swap_rollover3days",
+    "spread",
+    "spread_float",
+    "time",
+)
+
+
+# Phase 4 exposure reads (allowlists; no tickets, comments, magic numbers or identifiers).
+POSITION_FIELDS = (
+    "symbol",
+    "type",
+    "volume",
+    "price_open",
+    "sl",
+    "tp",
+    "price_current",
+    "profit",
+    "swap",
+    "time",
+)
+# price_stoplimit: the limit price of a stop-limit order (F4: its possible execution price).
+ORDER_FIELDS = (
+    "symbol",
+    "type",
+    "volume_current",
+    "price_open",
+    "price_stoplimit",
+    "sl",
+    "tp",
+    "time_setup",
+)
+DEAL_FIELDS = (
+    "time",
+    "type",
+    "entry",
+    "symbol",
+    "volume",
+    "price",
+    "profit",
+    "swap",
+    "commission",
+    "fee",
+)
+
+
+def _order_type(module: Any, side: str) -> int:
+    """MT5 ``ORDER_TYPE_BUY`` / ``ORDER_TYPE_SELL`` code for a calculator call (0 / 1)."""
+    if side not in ("buy", "sell"):
+        raise ValueError("side must be 'buy' or 'sell'")
+    name = "ORDER_TYPE_BUY" if side == "buy" else "ORDER_TYPE_SELL"
+    code = getattr(module, name, 0 if side == "buy" else 1)
+    return int(code)
+
+
 def _field(record: Any, name: str) -> Any:
     if record is None:
         return None
@@ -451,6 +562,103 @@ class MetaTrader5Adapter:
             self._reject_future(newest, f"{symbol} {timeframe} bar")
         return result
 
+    def account_snapshot(self) -> dict[str, Any]:
+        """Allowlisted account and terminal properties, as MT5 returned them (read-only).
+
+        A field the installed package or broker does not supply is *absent* from the result
+        (not ``None``), so callers can tell "not supplied" from a supplied value. Never
+        contains the login, holder name or any other identifier outside ``ACCOUNT_FIELDS``.
+        """
+        module = self._require_connection()
+        try:
+            account = module.account_info()
+            terminal = module.terminal_info()
+        except Exception:
+            raise self._failure("account information") from None
+        if account is None:
+            raise self._failure("account information")
+        return {
+            "account": _present(account, ACCOUNT_FIELDS),
+            "terminal": _present(terminal, TERMINAL_FIELDS) if terminal is not None else {},
+        }
+
+    def symbol_snapshot(self, symbol: str) -> dict[str, Any]:
+        """Allowlisted ``symbol_info`` properties of an exact broker symbol (read-only).
+
+        Absent fields mean MT5 did not supply them. Values are not validated here.
+        """
+        module = self._require_connection()
+        try:
+            info = module.symbol_info(symbol)
+        except Exception:
+            raise self._failure(f"specification retrieval for {symbol!r}") from None
+        if info is None:
+            raise self._failure(f"specification retrieval for {symbol!r}")
+        return _present(info, SYMBOL_FIELDS)
+
+    # ------------------------------------------------------------ Phase 4 (read-only)
+    def exposure_snapshot(self, from_epoch: float, to_epoch: float) -> dict[str, Any]:
+        """Open positions, pending orders and the deals in ``[from_epoch, to_epoch]``.
+
+        Read-only (``positions_get``, ``orders_get``, ``history_deals_get``). Epochs are MT5
+        server-clock seconds. Only allowlisted fields are copied: tickets, comments, magic
+        numbers, external ids and every account identifier are left behind. A ``None`` answer
+        from MT5 means the read failed (an empty tuple means "none").
+        """
+        module = self._require_connection()
+        try:
+            positions = module.positions_get()
+            orders = module.orders_get()
+            deals = module.history_deals_get(int(from_epoch), int(to_epoch))
+        except Exception:
+            raise self._failure("exposure read") from None
+        for name, value in (("positions", positions), ("orders", orders), ("deals", deals)):
+            if value is None:
+                raise self._failure(f"{name} read")
+        return {
+            "positions": [_present(item, POSITION_FIELDS) for item in positions],
+            "orders": [_present(item, ORDER_FIELDS) for item in orders],
+            "deals": [_present(item, DEAL_FIELDS) for item in deals],
+        }
+
+    def calc_profit(
+        self, side: str, symbol: str, volume: float, price_open: float, price_close: float
+    ) -> float:
+        """MT5's terminal-side profit calculator (``order_calc_profit``), in account currency.
+
+        A calculation only: nothing is sent to the trade server and no order is created.
+        """
+        module = self._require_connection()
+        try:
+            value = module.order_calc_profit(
+                _order_type(module, side),
+                symbol,
+                float(volume),
+                float(price_open),
+                float(price_close),
+            )
+        except Exception:
+            raise self._failure(f"profit calculation for {symbol!r}") from None
+        if value is None:
+            raise self._failure(f"profit calculation for {symbol!r}")
+        return float(value)
+
+    def calc_margin(self, side: str, symbol: str, volume: float, price: float) -> float:
+        """MT5's terminal-side margin calculator (``order_calc_margin``), in account currency.
+
+        A calculation only: nothing is sent to the trade server and no order is created.
+        """
+        module = self._require_connection()
+        try:
+            value = module.order_calc_margin(
+                _order_type(module, side), symbol, float(volume), float(price)
+            )
+        except Exception:
+            raise self._failure(f"margin calculation for {symbol!r}") from None
+        if value is None:
+            raise self._failure(f"margin calculation for {symbol!r}")
+        return float(value)
+
     def capture_symbol_metadata(self, symbol: str) -> dict[str, Any]:
         """Capture known symbol specifications; unavailable fields remain null."""
         module = self._require_connection()
@@ -541,6 +749,23 @@ class MetaTrader5Adapter:
 
     def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
         self.shutdown()
+
+
+_MISSING = object()
+
+
+def _present(record: Any, names: tuple[str, ...]) -> dict[str, Any]:
+    """The listed fields that ``record`` actually has (numpy scalars made plain)."""
+    values: dict[str, Any] = {}
+    for name in names:
+        if isinstance(record, dict):
+            value = record.get(name, _MISSING)
+        else:
+            value = getattr(record, name, _MISSING)
+        if value is _MISSING:
+            continue
+        values[name] = value.item() if hasattr(value, "item") else value
+    return values
 
 
 def _optional_int(value: Any) -> int | None:
