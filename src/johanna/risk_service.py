@@ -26,7 +26,6 @@ from johanna.risk_engine import (
     finalise,
     plan_trade,
     trading_day_start,
-    trading_weekday,
 )
 
 LOGGER = logging.getLogger("johanna.risk_service")
@@ -79,12 +78,32 @@ class RiskService:
             self.evaluations += 1
             return self._evaluate(pair, timeframe, requested=symbol.strip())
 
-    def _evaluate(self, symbol: str, timeframe: str, *, requested: str) -> dict[str, Any]:
-        analysis, analysis_error = None, None
-        try:
-            analysis = self.analysis.analyse(symbol, timeframe)
-        except Exception as exc:  # MarketAnalysisError or unexpected: fail closed
-            analysis_error = f"{type(exc).__name__}: {exc}"
+    def assess(self, symbol: str, timeframe: str, analysis: dict[str, Any]) -> dict[str, Any]:
+        """P6.1 shadow evaluation: the unchanged Phase 4 assessment of an analysis envelope the
+        caller already obtained (no second analysis, no request-time decision capture)."""
+        pair = self.account.supported_pair(symbol)
+        if pair is None:
+            raise ValueError(f"unsupported symbol {symbol!r}")
+        with self._guard:
+            lock = self._locks.setdefault((pair, timeframe), threading.Lock())
+        with lock:
+            self.evaluations += 1
+            return self._evaluate(pair, timeframe, requested=symbol.strip(), analysis=analysis)
+
+    def _evaluate(
+        self,
+        symbol: str,
+        timeframe: str,
+        *,
+        requested: str,
+        analysis: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        analysis_error = None
+        if analysis is None:
+            try:
+                analysis = self.analysis.analyse(symbol, timeframe)
+            except Exception as exc:  # MarketAnalysisError or unexpected: fail closed
+                analysis_error = f"{type(exc).__name__}: {exc}"
         account = self.account.summary()
         instrument = self.account.instrument(symbol)
         day_start = trading_day_start(self._clock(), self.live_market.server_clock)
@@ -106,7 +125,6 @@ class RiskService:
             policy=self.policy,
             requested_symbol=requested,
             costs=self.costs,
-            trading_weekday=trading_weekday(day_start, self.live_market.server_clock),
         )
         plan = plan_trade(inputs)
         calculations, calc_error = None, None

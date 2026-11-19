@@ -11,6 +11,7 @@ import pytest
 from fake_mt5 import READ_ONLY_CALLS
 from risk_fixtures import (
     BUY_LEVEL,
+    INTRADAY_HOURS,
     PRODUCTION_COSTS,
     SELL_LEVEL,
     SELL_SYMBOLS,
@@ -19,11 +20,14 @@ from risk_fixtures import (
     check_ids,
     envelope,
     make_fake,
+    negative_swap,
     stack,
+    synthetic_terms,
 )
 from test_risk_api import _api, _call
 
 from johanna import risk_engine
+from johanna.cost_evidence import CostComponent, HoldingAssumption
 from johanna.risk_engine import APPROVED, REJECTED, UNVERIFIED, CostTerms, RiskInputs
 
 SYMBOLS = ("EURUSDc", "GBPUSDc", "USDJPYc")
@@ -36,29 +40,34 @@ def terms(
     symbols=SYMBOLS,
     slippage: float | None = 0.0,
 ) -> CostTerms:
-    """Synthetic cost terms (test-only); ``slippage`` is a bound in points per side."""
-    return CostTerms(
-        slippage_bound_points_per_side={s: slippage for s in symbols}
-        if slippage is not None
-        else {},
-        slippage_source="synthetic test bound" if slippage is not None else None,
-        commission_round_trip_per_lot={s: commission for s in symbols}
-        if commission is not None
-        else {},
-        commission_source="synthetic test rate" if commission is not None else None,
-        holding_rollovers=holding,
-        holding_source="synthetic test assumption" if holding is not None else None,
+    """Synthetic VERIFIED cost evidence (test-only). ``slippage``: points per side;
+    ``holding``: days held (0 = intraday, no rollover; None = no holding assumption)."""
+    return synthetic_terms(
+        commission=commission,
+        slippage=slippage,
+        holding_hours=None
+        if holding is None
+        else (INTRADAY_HOURS if holding == 0 else 24.0 * holding),
+        symbols=symbols,
     )
+
+
+def fixed_rollovers(units: int):
+    """Pin the rollover count for tests whose expected numbers need an exact count (the real
+    broker schedule is tested deterministically in test_cost_evidence.py)."""
+
+    def charges(start, end, triple_weekday):
+        return {"units": units, "events": [{"units": units}], "seasonal_ambiguity": False}
+
+    return charges
 
 
 def _day() -> datetime:
     return datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
-def run(
-    fake=None, env=None, *, costs=VERIFIED_COSTS, weekday=TUE, symbol="EURUSD", requested=None
-) -> dict:
-    """The real two-stage engine with an explicit server weekday (deterministic swap)."""
+def run(fake=None, env=None, *, costs=VERIFIED_COSTS, symbol="EURUSD", requested=None) -> dict:
+    """The real two-stage engine (swap rollovers counted from the evaluation time)."""
     fake = fake if fake is not None else make_fake()
     env = env if env is not None else envelope(level=BUY_LEVEL)
     live, account, _ = stack(fake, StubAnalysis())
@@ -74,7 +83,6 @@ def run(
         day_start_utc=_day(),
         requested_symbol=requested,
         costs=costs,
-        trading_weekday=weekday,
     )
     plan = risk_engine.plan_trade(inputs)
     calcs = (
@@ -130,7 +138,13 @@ def test_verified_commission_is_included_on_both_sides() -> None:
     net = result["net_reward_risk"]
     assert net["status"] == "estimated" and net["cost_per_lot"] == 20.0
     assert net["value"] == pytest.approx((802 - 20) / (366 + 20), abs=1e-3)
-    assert result["costs"]["commission"]["source"] == "synthetic test rate"
+    assert result["costs"]["commission"]["source"] == "test fixture (synthetic, not a broker term)"
+    record = result["costs"]["commission"]["evidence"]["record"]
+    assert (record["currency"], record["unit"], record["basis"]) == (
+        "USC",
+        "amount_per_lot",
+        "round_trip",
+    )
     assert result["status"] == APPROVED
 
 
@@ -138,7 +152,7 @@ def test_unknown_commission_blocks_approval() -> None:
     result = run(costs=terms(commission=0.0, symbols=("GBPUSDc",)))  # no rate for EURUSDc
     assert result["status"] == UNVERIFIED
     assert result["validations"]["costs"]["status"] == "unverified"
-    assert "commission rate not verified" in result["unverified"][0]["reason"]
+    assert "commission not verified" in result["unverified"][0]["reason"]
 
 
 def test_historical_zero_commission_alone_is_not_a_verified_rate() -> None:
@@ -157,7 +171,7 @@ def test_swap_direction_decides_whether_a_holding_period_is_needed() -> None:
     )
     assert sell["costs"]["swap"]["status"] == "established"  # short swap 0: not a cost
     assert sell["status"] == APPROVED
-    buy = run(costs=no_holding)  # long swap -5.7 points: a cost, holding unknown
+    buy = run(negative_swap(make_fake()), costs=no_holding)  # long swap -5.7: a cost
     assert buy["costs"]["swap"]["status"] == "unverified" and buy["status"] == UNVERIFIED
     fake = make_fake()
     fake.symbols["EURUSDc"]["info"] = {"swap_long": 2.0, "swap_short": -3.0}
@@ -167,40 +181,34 @@ def test_swap_direction_decides_whether_a_holding_period_is_needed() -> None:
     assert credit["status"] == APPROVED
 
 
-@pytest.mark.parametrize(
-    ("weekday", "holding", "units"),
-    [
-        (MON, 2, 2),
-        (TUE, 1, 1),
-        (WED, 1, 3),
-        (TUE, 2, 4),
-        (THU, 3, 3),
-        (FRI, 2, 2),
-        (SAT, 1, 1),
-        (SUN, 1, 1),
-        (MON, 5, 7),
-        (WED, 0, 0),
-    ],
-)
-def test_swap_units_with_triple_day_and_weekends(weekday, holding, units) -> None:
-    assert risk_engine._swap_units(weekday, holding, WED) == units
-
-
-def test_holding_period_and_triple_swap_cost() -> None:
-    tue = run(costs=terms(holding=2), weekday=TUE)  # Tue (1) + Wed (3)
+# The real rollover schedule (17:00 New York, Wednesday triple, weekends, DST, boundaries) is
+# tested with fixed timestamps in test_cost_evidence.py; here its count is pinned.
+def test_holding_period_and_triple_swap_cost(monkeypatch) -> None:
+    monkeypatch.setattr(risk_engine, "rollover_charges", fixed_rollovers(4))  # e.g. Tue + Wed x3
+    tue = run(negative_swap(make_fake()), costs=terms(holding=2))
     assert tue["costs"]["swap"]["charge_units"] == 4
     assert tue["costs"]["swap"]["cost_per_lot"] == pytest.approx(5.7 * 4)
     assert tue["net_reward_risk"]["value"] == pytest.approx((802 - 22.8) / (366 + 22.8), abs=1e-3)
-    wed = run(costs=terms(holding=1), weekday=WED)
+    monkeypatch.setattr(risk_engine, "rollover_charges", fixed_rollovers(3))
+    wed = run(negative_swap(make_fake()), costs=terms(holding=1))
     assert (
         wed["costs"]["swap"]["charge_units"] == 3 and "wednesday" in wed["costs"]["swap"]["summary"]
     )
 
 
+def test_real_rollover_schedule_is_used_from_the_evaluation_time() -> None:
+    # a full week always contains the Wednesday triple (whatever the wall-clock time)
+    result = run(negative_swap(make_fake()), costs=terms(holding=7))
+    swap = result["costs"]["swap"]
+    assert swap["charge_units"] == 7 and swap["rollovers"]["holiday_adjustments"] == "not_modelled"
+    assert swap["cost_per_lot"] == pytest.approx(5.7 * 7)
+    assert swap["holding"]["status"] == "APPROVED" and swap["holding"]["max_hours"] == 168.0
+
+
 def test_unknown_holding_period_blocks_approval_when_swap_is_a_cost() -> None:
-    result = run(costs=terms(commission=0.0, holding=None))
+    result = run(negative_swap(make_fake()), costs=terms(commission=0.0, holding=None))
     assert result["status"] == UNVERIFIED
-    assert "holding period unknown" in result["unverified"][0]["reason"]
+    assert "holding period not approved" in result["unverified"][0]["reason"]
     assert result["gross_reward_risk"] > 2  # a passing gross ratio does not override the gate
 
 
@@ -237,7 +245,7 @@ def test_net_ratio_at_two_passes_only_when_every_other_gate_passes() -> None:
     assert result["net_reward_risk"]["value"] == pytest.approx(2.0, abs=1e-6)
     assert result["status"] == APPROVED
     stale = run(make_fake(tick_age_seconds=30), costs=exact)
-    assert stale["status"] == REJECTED  # the stale quote gate still decides
+    assert stale["status"] == UNVERIFIED  # the stale quote gate still decides (M3: unverified)
 
 
 def test_unverified_costs_prevent_approval_although_all_else_passes() -> None:
@@ -256,24 +264,28 @@ def test_unverified_costs_prevent_approval_although_all_else_passes() -> None:
 def test_production_service_default_has_no_verified_cost_terms() -> None:
     _, _, risk = stack(make_fake(), StubAnalysis(envelope(level=BUY_LEVEL)))
     assert risk.costs == risk_engine.COST_TERMS
-    assert risk.costs.commission_round_trip_per_lot == {} and risk.costs.holding_rollovers is None
+    assert risk.costs.components == () and risk.costs.holding == {}  # nothing configured
     assert risk.proposal("EURUSD", "H1")["status"] == UNVERIFIED
 
 
 @pytest.mark.parametrize(
-    "kwargs",
+    "change",
     [
-        {"commission_round_trip_per_lot": {"EURUSDc": 1.0}},  # no source
-        {"commission_round_trip_per_lot": {"EURUSDc": -1.0}, "commission_source": "x"},
-        {"commission_round_trip_per_lot": {"EURUSDc": float("nan")}, "commission_source": "x"},
-        {"holding_rollovers": 2},  # no source
-        {"holding_rollovers": -1, "holding_source": "x"},
-        {"holding_rollovers": 1.5, "holding_source": "x"},
+        {"source_reference": ""},  # no source
+        {"value": -1.0},
+        {"value": float("nan")},
     ],
 )
-def test_cost_terms_are_validated(kwargs) -> None:
+def test_cost_terms_are_validated(change) -> None:
+    commission = synthetic_terms().components[0]
     with pytest.raises(ValueError):
-        CostTerms(**kwargs)
+        CostComponent(**{**commission.__dict__, **change})
+    holding = synthetic_terms().holding["H1"]
+    for bad in ({"max_hours": -1.0}, {"max_hours": 1e9}, {"rationale": ""}):
+        with pytest.raises(ValueError):
+            HoldingAssumption(**{**holding.__dict__, **bad})
+    with pytest.raises(ValueError):
+        CostTerms(components=(commission, commission))  # two values for one cost
 
 
 # ====================================================================== F2 cost deals

@@ -181,15 +181,28 @@ def test_precedence_r4_before_r5_and_r2_before_r3() -> None:
     assert rule(evaluate_market(*pipeline(bars))) == "R2"  # provisional and undetermined
 
 
-def test_trusted_empty_resistance_side_passes_tc6_with_explicit_evidence(bullish) -> None:
+def test_trusted_empty_resistance_side_fails_tc6_and_is_not_a_candidate(bullish) -> None:
+    # P6.2b.8: no opposing structural level -> TC6 fails -> R6, never R7
     snap, v, a = fresh(bullish)
     sr = a["structure"]["support_resistance"]
     sr["resistance"] = []
     sr["resistance_reason"] = "no confirmed swing highs"
     r = evaluate_market(snap, v, a)
     tc6 = r["opportunity"]["checklist"][5]
-    assert (tc6["result"], tc6["evidence_id"]) == ("pass", "no_resistance_levels")
-    assert any("does not establish" in x for x in r["limitations"])
+    assert (tc6["result"], tc6["evidence_id"]) == ("fail", "no_resistance_levels")
+    assert (r["decision"]["outcome"], r["decision"]["rule"]) == ("MARKET_CONDITION", "R6")
+    assert "failed check: TC6_clearance" in r["decision"]["reasons"]
+    assert any("TC6 failed" in x and "does not establish" in x for x in r["limitations"])
+
+
+def test_plain_trend_without_an_opposing_level_is_r6_not_r7() -> None:
+    # The pre-P6.2b.8 fixture history (no qualifying opposing level) through the real pipeline
+    for sign, side in ((1, "resistance"), (-1, "support")):
+        r = evaluate_market(*pipeline(trend_bars(sign=sign, target=False)))
+        tc6 = r["opportunity"]["checklist"][5]
+        assert tc6["result"] == "fail" and tc6["evidence_id"].startswith("no_")
+        assert tc6["selected_level"] is None
+        assert r["decision"]["rule"] == "R6", side
 
 
 # ---------------------------------------------------------------- provenance P1-P10

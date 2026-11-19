@@ -166,6 +166,13 @@ DEAL_FIELDS = (
 )
 
 
+# P6.3 reconciliation reads: the Phase 4 allowlists plus the identifiers needed to match a
+# position to its deals. Identifiers are converted to HMAC references in the backend.
+RECON_POSITION_FIELDS = (*POSITION_FIELDS, "ticket", "identifier")
+RECON_ORDER_FIELDS = (*ORDER_FIELDS, "ticket", "position_id")
+RECON_DEAL_FIELDS = (*DEAL_FIELDS, "ticket", "order", "position_id")
+
+
 def _order_type(module: Any, side: str) -> int:
     """MT5 ``ORDER_TYPE_BUY`` / ``ORDER_TYPE_SELL`` code for a calculator call (0 / 1)."""
     if side not in ("buy", "sell"):
@@ -619,6 +626,32 @@ class MetaTrader5Adapter:
             "positions": [_present(item, POSITION_FIELDS) for item in positions],
             "orders": [_present(item, ORDER_FIELDS) for item in orders],
             "deals": [_present(item, DEAL_FIELDS) for item in deals],
+        }
+
+    # ------------------------------------------------------------ P6.3 (read-only)
+    def reconciliation_snapshot(self, from_epoch: float, to_epoch: float) -> dict[str, Any]:
+        """Open positions, pending orders and the deals in ``[from_epoch, to_epoch]`` WITH their
+        broker identifiers, for reconciliation only.
+
+        Read-only (``positions_get``, ``orders_get``, ``history_deals_get``). The identifiers
+        leave the worker only to be replaced by HMAC references in the backend
+        (``JournalStore.broker_ref``) before anything is stored, logged or shown; comments,
+        magic numbers, external ids and account identifiers are never copied.
+        """
+        module = self._require_connection()
+        try:
+            positions = module.positions_get()
+            orders = module.orders_get()
+            deals = module.history_deals_get(int(from_epoch), int(to_epoch))
+        except Exception:
+            raise self._failure("reconciliation read") from None
+        for name, value in (("positions", positions), ("orders", orders), ("deals", deals)):
+            if value is None:
+                raise self._failure(f"{name} read")
+        return {
+            "positions": [_present(i, RECON_POSITION_FIELDS) for i in positions],
+            "orders": [_present(i, RECON_ORDER_FIELDS) for i in orders],
+            "deals": [_present(i, RECON_DEAL_FIELDS) for i in deals],
         }
 
     def calc_profit(

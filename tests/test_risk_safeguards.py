@@ -6,15 +6,25 @@ Synthetic data only (FakeMT5, real T6 envelopes reshaped per test, synthetic cos
 from __future__ import annotations
 
 import pytest
-from risk_fixtures import BUY_LEVEL, PRODUCTION_COSTS, StubAnalysis, check_ids, envelope, make_fake
+from risk_fixtures import (
+    BUY_LEVEL,
+    PRODUCTION_COSTS,
+    StubAnalysis,
+    check_ids,
+    envelope,
+    make_fake,
+    negative_swap,
+)
 from test_risk_api import _api, _call
-from test_risk_corrections import TUE, deal, run, terms
+from test_risk_corrections import deal, fixed_rollovers, run, terms
 
-from johanna.risk_engine import APPROVED, REJECTED, UNVERIFIED, CostTerms
+from johanna import risk_engine
+from johanna.risk_engine import APPROVED, REJECTED, UNVERIFIED
 
 
 def rich(equity: float = 100_000.0):
-    fake = make_fake()
+    # the swap safeguards in this file need the long swap to be a cost (fake default: zero)
+    fake = negative_swap(make_fake())
     fake.account.update(balance=equity, equity=equity, margin_free=equity)
     return fake
 
@@ -32,7 +42,7 @@ def test_established_commission_and_swap_with_unmodelled_slippage_cannot_be_appr
         "assumptions": result["costs"]["assumptions"],
     }
     reason = next(u["reason"] for u in result["unverified"] if u["area"] == "costs")
-    assert "slippage unmodelled (no verified estimate or bound)" in reason
+    assert "slippage unmodelled (no slippage evidence)" in reason
 
 
 def test_a_high_gross_ratio_cannot_override_the_slippage_gate() -> None:
@@ -60,16 +70,15 @@ def test_missing_slippage_is_never_zero() -> None:
 
 
 @pytest.mark.parametrize(
-    "kwargs",
-    [
-        {"slippage_bound_points_per_side": {"EURUSDc": 1.0}},  # no source
-        {"slippage_bound_points_per_side": {"EURUSDc": -1.0}, "slippage_source": "x"},
-        {"slippage_bound_points_per_side": {"EURUSDc": float("inf")}, "slippage_source": "x"},
-    ],
+    "change",
+    [{"source_reference": ""}, {"value": -1.0}, {"value": float("inf")}],
 )
-def test_slippage_bounds_are_validated(kwargs) -> None:
+def test_slippage_bounds_are_validated(change) -> None:
+    from johanna.cost_evidence import CostComponent  # noqa: PLC0415
+
+    slippage = terms().components[1]
     with pytest.raises(ValueError):
-        CostTerms(**kwargs)
+        CostComponent(**{**slippage.__dict__, **change})
 
 
 def test_api_shows_the_unverified_state(tmp_path) -> None:
@@ -86,14 +95,15 @@ def test_api_shows_the_unverified_state(tmp_path) -> None:
 
 def test_existing_cost_gate_behaviour_is_intact() -> None:
     assert run(costs=terms(commission=None, slippage=2.0))["status"] == UNVERIFIED
-    assert run(costs=terms(holding=None, slippage=2.0))["status"] == UNVERIFIED  # long swap < 0
+    no_holding = run(negative_swap(make_fake()), costs=terms(holding=None, slippage=2.0))
+    assert no_holding["status"] == UNVERIFIED  # long swap < 0 needs a holding period
     low = run(costs=terms(commission=30.0, holding=0, slippage=0.0))  # net 1.95
     assert low["status"] == REJECTED and "net_reward_risk" in check_ids(low)
 
 
 # ====================================================================== B. cost-inclusive sizing
 def sized(fake=None, **cost_kwargs) -> dict:
-    result = run(fake if fake is not None else rich(), costs=terms(**cost_kwargs), weekday=TUE)
+    result = run(fake if fake is not None else rich(), costs=terms(**cost_kwargs))
     return result
 
 
@@ -105,13 +115,15 @@ def test_commission_reduces_the_volume() -> None:
     assert with_commission["sizing"]["loss_per_lot"]["total"] == pytest.approx(386.0)
 
 
-def test_negative_swap_reduces_the_volume() -> None:
+def test_negative_swap_reduces_the_volume(monkeypatch) -> None:
+    monkeypatch.setattr(risk_engine, "rollover_charges", fixed_rollovers(4))
     result = sized(commission=0.0, holding=2)  # Tue + Wed(x3) = 4 x 5.7 = 22.8 per lot
     assert result["sizing"]["loss_per_lot"]["swap"] == pytest.approx(22.8)
     assert result["sizing"]["volume"] == 1.28  # 500 / 388.8
 
 
-def test_commission_and_swap_are_included_together() -> None:
+def test_commission_and_swap_are_included_together(monkeypatch) -> None:
+    monkeypatch.setattr(risk_engine, "rollover_charges", fixed_rollovers(4))
     result = sized(commission=20.0, holding=2, slippage=1.0)  # + 2 x 1 point slippage
     lpl = result["sizing"]["loss_per_lot"]
     assert (lpl["commission"], lpl["swap"], lpl["slippage"]) == (20.0, pytest.approx(22.8), 2.0)
@@ -172,7 +184,10 @@ def test_total_expected_loss_never_exceeds_the_budget(equity, commission, holdin
     s = result["sizing"]
     total = s["volume"] * s["loss_per_lot"]["total"]
     assert total <= s["risk_budget"] + 1e-9
-    assert s["estimated_loss"] == pytest.approx(round(total, 2))
+    # estimated_loss = round(volume x raw total, 2); the view's per-lot total is rounded to
+    # 6 decimals, so the two differ by at most half a cent plus that rounding (Phase 1 M-10:
+    # the old exact comparison failed at half-cent boundaries depending on the swap count)
+    assert abs(s["estimated_loss"] - total) <= 0.005 + s["volume"] * 5e-7 + 1e-9
     assert s["estimated_loss"] == pytest.approx(
         s["estimated_price_loss"] + s["estimated_costs"], abs=0.011
     )
@@ -181,8 +196,8 @@ def test_total_expected_loss_never_exceeds_the_budget(equity, commission, holdin
 @pytest.mark.parametrize(
     ("costs", "reason"),
     [
-        ({"commission": None}, "commission rate not verified"),
-        ({"holding": None}, "holding period unknown"),
+        ({"commission": None}, "commission not verified"),
+        ({"holding": None}, "holding period not approved"),
         ({"slippage": None}, "slippage unmodelled"),
     ],
 )
@@ -234,7 +249,8 @@ def test_remaining_daily_allowance_binds_when_lower() -> None:
     assert result["daily_risk"]["proposed"] == s["estimated_loss"]
 
 
-def test_no_cost_is_counted_twice() -> None:
+def test_no_cost_is_counted_twice(monkeypatch) -> None:
+    monkeypatch.setattr(risk_engine, "rollover_charges", fixed_rollovers(4))
     result = sized(commission=20.0, holding=2, slippage=1.0)
     s, net = result["sizing"], result["net_reward_risk"]
     cost = 20.0 + 22.8 + 2.0

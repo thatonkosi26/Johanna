@@ -1,4 +1,4 @@
-# T6 design: market conditions and trend-continuation detection (revision 2.5)
+# T6 design: market conditions and trend-continuation detection (revision 2.6)
 
 Date: 2026-11-12 · Claude Code (Opus 5.5) · **Design only.** Only this document was changed. No
 source, test, data or other documentation was touched, nothing was committed, and T6
@@ -7,8 +7,9 @@ two clarifications: overlapping support/resistance zones (§3.4) and TC6 clearan
 (§4.1). Revisions 2.2–2.5 add the verified T5 support/resistance contract, input
 provenance checks, the production entry point (§1.5), how provenance metadata is produced
 (§1.6), the raw-interval versus expanded-zone distinction (§2.3, §3.4, §4.1) and limitation
-clarifications. Every change
-is listed in §12.
+clarifications. Revision 2.6 (P6.2b.8, 2026-11-19, implemented) makes TC6 fail when no
+qualifying opposing level exists and introduces the shared structural-target contract (§4.1,
+§4.2). Every change is listed in §12.
 
 **In short:**
 - **Scope:** T6 does three things and nothing else:
@@ -429,7 +430,7 @@ resistance exists above.
 | `TC3_long_term` | `C > EMA200` **and** `EMA50 > EMA200` | `C < EMA200` **and** `EMA50 < EMA200` |
 | `TC4_pullback` | some `j ∈ J` has `abs(low_j − EMA20_j) / ATR_j ≤ 0.25` | some `j ∈ J` has `abs(high_j − EMA20_j) / ATR_j ≤ 0.25` |
 | `TC5_resumption` | `C > EMA20` | `C < EMA20` |
-| `TC6_clearance` | nearest qualifying resistance distance `≥ 1.0` ATR, or no qualifying resistance at or above `C` (§4.1) | nearest qualifying support distance `≥ 1.0` ATR, or no qualifying support at or below `C` (§4.1) |
+| `TC6_clearance` | a qualifying resistance exists above `C` and passes the shared structural-target contract, with distance `≥ 1.0` ATR (§4.1, §4.2); **no qualifying resistance fails** | a qualifying support exists below `C` and passes the shared contract, with distance `≥ 1.0` ATR (§4.1, §4.2); **no qualifying support fails** |
 
 **Vetoes (each rejects the setup even if TC1–TC6 pass):**
 
@@ -494,22 +495,29 @@ Each TC6 record also carries the T5 `status`, `trusted` and reason fields it rel
 | # | Bullish `evidence_id` | Bearish `evidence_id` | Condition | TC6 result |
 |---|---|---|---|---|
 | 0 | `support_resistance_untrusted` | `support_resistance_untrusted` | T5 S/R `trusted` is false (any of the first four contract rows above, whatever the lists contain), or latest ATR untrusted | `unavailable`, giving R5 `NO_TRADE` |
-| 1 | `no_resistance_levels` | `no_support_levels` | T5 S/R trusted, the resistance (bearish: support) list is empty, and T5's `resistance_reason` (bearish: `support_reason`) is present | `pass` |
-| 2 | `no_qualifying_resistance` | `no_qualifying_support` | Resistance (bearish: support) levels exist on **that side**, but **none** has `strength ≥ 2` | `pass` |
-| 3 | `no_qualifying_resistance_above` | `no_qualifying_support_below` | Qualifying levels exist, but none is at or above `C` (bullish: all have `high < C`) | `pass` |
-| 4 | `resistance_clearance_insufficient` | `support_clearance_insufficient` | Nearest qualifying level distance `< 1.0` ATR, including `0` when `C` is inside its raw T5 level interval | `fail` |
-| 5 | `resistance_clearance_sufficient` | `support_clearance_sufficient` | Nearest qualifying level distance `≥ 1.0` ATR | `pass` |
+| 1 | `no_resistance_levels` | `no_support_levels` | T5 S/R trusted, the resistance (bearish: support) list is empty, and T5's `resistance_reason` (bearish: `support_reason`) is present | **`fail`** (2.6) |
+| 2 | `no_qualifying_resistance` | `no_qualifying_support` | Resistance (bearish: support) levels exist on **that side**, but **none** has `strength ≥ 2` | **`fail`** (2.6) |
+| 3 | `no_qualifying_resistance_above` | `no_qualifying_support_below` | Qualifying levels exist, but none is at or above `C` (bullish: all have `high < C`) | **`fail`** (2.6) |
+| 4 | `resistance_clearance_insufficient` | `support_clearance_insufficient` | Nearest qualifying level distance `< 1.0` ATR, including `0` when `C` is inside or touching its raw T5 level interval | `fail` |
+| 4a | `resistance_level_invalid` | `support_level_invalid` | (2.6) The selected level's evidence fails the shared contract for any other reason (for example a non-finite boundary) | `fail` |
+| 5 | `resistance_clearance_sufficient` | `support_clearance_sufficient` | Nearest qualifying level distance `≥ 1.0` ATR and the shared contract passes | `pass` |
 
 **Rules:**
-- **Pass when no qualifying opposing level exists (cases 1–3):** the current experimental
-  behaviour, kept unchanged. The evidence id shows *why* nothing was in the way.
-  - **What a pass in cases 1–3 means:** no qualifying opposing level was **identified in the
-    analysed history**, i.e. the validated window's confirmed pivots.
-  - **What it doesn't mean:** that no resistance (or support) exists in the market. Levels
+- **Fail when no qualifying opposing level exists (cases 1–3; revision 2.6, P6.2b.8):**
+  without that level there is no structural target, and Phase 4 takes its take-profit from it,
+  so a setup that passed here could never be constructed (the inconsistency found in P6.2b.7).
+  The evidence id still shows *why* nothing was found; the setup becomes R6
+  `MARKET_CONDITION` with `failed check: TC6_clearance`, never R7.
+  - **What cases 1–3 mean:** no qualifying opposing level was **identified in the analysed
+    history**, i.e. the validated window's confirmed pivots.
+  - **What they don't mean:** that no resistance (or support) exists in the market. Levels
     older than the window, levels not formed as confirmed k = 2 pivots, and levels with fewer
     than two pivots aren't seen.
-  - **Where this is stated:** the TC6 record carries this as `detail`, and §11 lists it as a
-    limitation.
+  - **Where this is stated:** the TC6 record carries this as `detail`, and the decision's
+    `limitations` say "TC6 failed because no qualifying opposing level was identified…".
+- **Shared contract (2.6):** every TC6 record carries `opposing_level_check`
+  `{valid, code, distance_atr}`: the verdict of the shared structural-target contract (§4.2)
+  in signal-free T6 vocabulary (the mapping is in §4.2). Case 5 requires `valid: true`.
 - **Strength-1 levels are only reported:** in case 2 or 3, the nearest non-qualifying
   (strength-1) level on the relevant side is reported as informational evidence
   (`nearest_non_qualifying_level`, with its distance). It never changes the result, so the
@@ -526,6 +534,62 @@ Each TC6 record also carries the T5 `status`, `trusted` and reason fields it rel
 - **Independent of location:** location's expanded zones (§3.4) don't feed TC6. Both read the
   same T5 levels independently: TC6 uses the raw intervals, location the expanded zones. Their
   results can differ (§3.4 example).
+
+### 4.2 Shared structural-target contract (revision 2.6, P6.2b.8)
+
+**Location:** `src/johanna/analysis/targets.py`, function `validate_structural_target`. It is
+pure, has no clock and no I/O, and imports only the standard library. `johanna.analysis.setups`
+(TC6) and `johanna.risk_engine` (Phase 4) both import it; the analysis package never imports
+Phase 4, so there is no cycle.
+
+**A qualifying structural target** is a mapping whose:
+1. `low` and `high` are finite real numbers (not booleans, not strings), with `low ≤ high`;
+2. `strength` is a finite real number `≥ min_level_strength` (2);
+3. raw interval lies **entirely beyond** the reference price in the trade direction (bullish:
+   `low >` reference; bearish: `high <` reference). A zone containing or touching the
+   reference price is not beyond it;
+4. when a clearance requirement is given (TC6 only): distance `≥ clearance_atr` (1.0) ATR from
+   the reference price, with a finite positive ATR.
+
+`None`, missing keys, non-mappings, NaN, infinity, booleans and numeric strings are never
+coerced. They produce a coded failure, never an exception.
+
+**Stable reason codes** (checked in this order; the first failure wins):
+
+| Contract code (Phase 4 reports this) | TC6 `opposing_level_check.code` (signal-free) | Meaning |
+|---|---|---|
+| `invalid_direction` | `invalid_direction` | direction is not `bullish` or `bearish` |
+| `no_structural_target` | `no_opposing_level` | no level (cases 1–3) |
+| `invalid_target_evidence` | `invalid_level_evidence` | wrong type, missing or non-finite boundary or strength, inverted interval, invalid reference price, threshold or ATR |
+| `target_strength_below_minimum` | `level_strength_below_minimum` | strength `< min_level_strength` |
+| `target_wrong_side` | `level_wrong_side` | not entirely beyond the reference price |
+| `target_clearance_insufficient` | `level_clearance_insufficient` | closer than `clearance_atr` ATR (TC6 only) |
+| `structural_target_valid` | `opposing_level_valid` | valid |
+
+T6 output must stay free of trading vocabulary (§8; "target", "entry" and similar are banned
+words), so TC6 records the contract's verdict through this one-to-one mapping, not the contract
+codes themselves.
+
+**How each stage uses it:**
+- **TC6:** reference = the last closed candle's close `C`, with the clearance requirement.
+- **Phase 4 (independent revalidation):**
+  - **Reference and requirement:** reference = the executable entry (ask for a BUY, bid for a
+    SELL), with no clearance requirement.
+  - **Minimum strength:** T6's default `min_level_strength`, or a stricter value declared in
+    the envelope; never lower.
+  - **No trust in the checklist:** Phase 4 never relies on the checklist saying `pass`. It
+    reads the level evidence itself.
+  - **Rejections:** a failure is a structured rejection: `construction/target_direction` for
+    `target_wrong_side`, and `construction/target_structure` for every other code. The code is
+    reported in `target_validation`.
+  - **Then everything else, unchanged:** live quotes, tick rounding, the structural stop-loss,
+    then the gross and net 1:2 checks.
+
+**TC6 clearance is not reward:risk.** A TC6 pass means a valid opposing level is at least 1.0
+ATR from the close. It does **not** establish that a trade can reach the 1:2 minimum, gross or
+net. Only Phase 4 decides that, from the live entry, the structural stop-loss and the verified
+costs, and Phase 4 remains the final authority for trade construction. T6 performs no
+reward:risk filtering.
 
 ## 5. Corrected pullback rule (Correction A)
 
@@ -1005,8 +1069,8 @@ No threshold will be tuned against evaluation data.
 - ADX near 25 can flip the regime between candles (no hysteresis, to keep purity and prefix
   invariance);
 - D1 has little history margin (§6.2);
-- a TC6 pass because no qualifying opposing level was found means only that none was
-  identified in the analysed history, not that the market has no such level (§4.1);
+- a TC6 failure because no qualifying opposing level was found (2.6) means only that none
+  was identified in the analysed history, not that the market has no such level (§4.1);
 - swing pivots have no age limit (U6). Their timestamps are shown, but an old pivot counts the
   same as a recent one;
 - the production entry point's provenance comes from construction (one deep copy), not from
@@ -1063,3 +1127,4 @@ override:
 | 20 | **(2.4)** TC6 "no qualifying opposing level" pass clarified to mean "none identified in the analysed history" (§4.1, §11); swing-sequence pivots and their timestamps always shown in the output (§7.1, §8.3 example); no-age-limit policy (U6) retained | Review |
 | 21 | **(2.5)** Provenance metadata made unambiguous (§1.6): both public entry points call one private `_evaluate(..., provenance_mode)`. `evaluate_market_snapshot` fixes `"constructed"` (giving `by_construction`), `evaluate_market` fixes `"supplied"` (giving `not_verified`). The fixed mode-to-binding mapping is written only inside `_evaluate`, no public provenance parameter exists, and P1–P10 are identical for both modes. Pipeline (§1.2), module table, §1.5, output contract and tests updated. U10 decision unchanged. | Review of 2.4 |
 | 22 | **(2.5)** TC6 stated to use the **raw T5 level interval** `[low, high]` (distance 0 and `price_inside_zone: true` only inside it); location uses the **expanded location zone** `[low − tol, high + tol]`, which never influences TC6. Terminology added (§2.3); §3.4, §4.1, U8, the §8.3 example and tests updated; a worked example shows location and TC6 legitimately differing. The TC6 calculation, threshold, minimum strength, level selection and all outcomes are unchanged. | Review of 2.4 |
+| 23 | **(2.6, P6.2b.8, implemented)** TC6 cases 1–3 (no qualifying opposing level) now **fail**: no structural target, so no R7. Shared structural-target contract `johanna.analysis.targets.validate_structural_target` added (§4.2) and used by both TC6 and Phase 4. Case 4a (`*_level_invalid`) added. TC6 records `opposing_level_check` in signal-free vocabulary. `DECISION_VERSION` 1 → 2. The clearance threshold, minimum strength, level selection and every other check and veto are unchanged. No reward:risk filtering in T6. | P6.2b.7 inconsistency: TC6 passed without the level Phase 4 requires |

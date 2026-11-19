@@ -3,6 +3,12 @@
 The only setup in T6. Consumes the market conditions and the features; never reads the location
 dimension (TC6 uses the raw T5 level interval, §4.1). Every check returns ``pass``, ``fail``,
 ``unavailable`` or ``not_applicable``. Pure and deterministic.
+
+TC6 (P6.2b.8) passes only when an opposing structural level exists and satisfies the shared
+contract ``johanna.analysis.targets.validate_structural_target`` -- the same contract Phase 4
+applies independently before it constructs a trade. No qualifying opposing level is a TC6
+*failure*. T6 output stays signal-free, so the contract's verdict is recorded under the
+neutral, one-to-one ``LEVEL_CHECK_CODES`` vocabulary (``opposing_level_check``).
 """
 
 from __future__ import annotations
@@ -16,13 +22,33 @@ from johanna.analysis.features import (
     raw_distance,
     select_clearance_level,
 )
+from johanna.analysis.targets import (
+    INVALID_DIRECTION,
+    INVALID_TARGET_EVIDENCE,
+    NO_STRUCTURAL_TARGET,
+    STRUCTURAL_TARGET_VALID,
+    TARGET_CLEARANCE_INSUFFICIENT,
+    TARGET_STRENGTH_BELOW_MINIMUM,
+    TARGET_WRONG_SIDE,
+    validate_structural_target,
+)
 
 SETUP = "trend_continuation"
 PASS, FAIL, UNAVAILABLE, NOT_APPLICABLE = "pass", "fail", "unavailable", "not_applicable"
 NO_LEVEL_DETAIL = (
-    "no qualifying opposing level was identified in the analysed history; this does not "
-    "establish that no such level exists in the market"
+    "no qualifying opposing level was identified in the analysed history, so TC6 fails (no "
+    "structural level); this does not establish that no such level exists in the market"
 )
+# Shared-contract reason code -> the signal-free T6 code recorded in ``opposing_level_check``.
+LEVEL_CHECK_CODES = {
+    STRUCTURAL_TARGET_VALID: "opposing_level_valid",
+    NO_STRUCTURAL_TARGET: "no_opposing_level",
+    TARGET_STRENGTH_BELOW_MINIMUM: "level_strength_below_minimum",
+    TARGET_WRONG_SIDE: "level_wrong_side",
+    INVALID_TARGET_EVIDENCE: "invalid_level_evidence",
+    INVALID_DIRECTION: "invalid_direction",
+    TARGET_CLEARANCE_INSUFFICIENT: "level_clearance_insufficient",
+}
 
 
 def _check(id_: str, result: str, observed: Any = None, **kwargs: Any) -> dict[str, Any]:
@@ -98,11 +124,19 @@ def clearance(features: dict, direction: str, p: DecisionParameters) -> dict[str
             "strength": nq["strength"],
             "distance_atr": raw_distance(nq, price, atr["value"], direction),
         }
-    common = {"selected_level": None, "price_inside_zone": None, "t5": t5}
+    no_target = validate_structural_target(
+        None, direction=direction, reference_price=price, min_strength=p.min_level_strength
+    )
+    common = {
+        "selected_level": None,
+        "price_inside_zone": None,
+        "t5": t5,
+        "opposing_level_check": _level_view(no_target),
+    }
     if pick["empty"]:
         return _check(
             "TC6_clearance",
-            PASS,
+            FAIL,
             evidence_id=f"no_{name}_levels",
             detail=NO_LEVEL_DETAIL,
             extra={**common, "nearest_non_qualifying_level": None},
@@ -111,7 +145,7 @@ def clearance(features: dict, direction: str, p: DecisionParameters) -> dict[str
     if not pick["any_qualifying"]:
         return _check(
             "TC6_clearance",
-            PASS,
+            FAIL,
             evidence_id=f"no_qualifying_{name}",
             detail=NO_LEVEL_DETAIL,
             extra={**common, "nearest_non_qualifying_level": nearest_nq},
@@ -121,7 +155,7 @@ def clearance(features: dict, direction: str, p: DecisionParameters) -> dict[str
     if selected is None:
         return _check(
             "TC6_clearance",
-            PASS,
+            FAIL,
             evidence_id=f"no_qualifying_{name}_{'above' if bull else 'below'}",
             detail=NO_LEVEL_DETAIL,
             extra={**common, "nearest_non_qualifying_level": nearest_nq},
@@ -129,29 +163,54 @@ def clearance(features: dict, direction: str, p: DecisionParameters) -> dict[str
         )
     distance = raw_distance(selected, price, atr["value"], direction)
     inside = selected["low"] <= price <= selected["high"]
-    sufficient = distance >= p.clearance_atr
+    selected_level = {
+        "low": selected["low"],
+        "high": selected["high"],
+        "level": selected["level"],
+        "strength": selected["strength"],
+        "latest_confirmed_at_utc": selected.get("latest_confirmed_at_utc"),
+    }
+    target = validate_structural_target(
+        selected_level,
+        direction=direction,
+        reference_price=price,
+        min_strength=p.min_level_strength,
+        atr=atr["value"],
+        clearance_atr=p.clearance_atr,
+    )
+    if target["valid"]:
+        evidence_id = f"{name}_clearance_sufficient"
+    elif target["reason"] in (TARGET_CLEARANCE_INSUFFICIENT, TARGET_WRONG_SIDE):
+        evidence_id = f"{name}_clearance_insufficient"  # inside or touching the zone: distance 0
+    else:
+        evidence_id = f"{name}_level_invalid"
     return _check(
         "TC6_clearance",
-        PASS if sufficient else FAIL,
+        PASS if target["valid"] else FAIL,
         distance,
-        evidence_id=f"{name}_clearance_{'sufficient' if sufficient else 'insufficient'}",
+        evidence_id=evidence_id,
         detail=(
             f"{name} raw T5 interval {selected['low']}-{selected['high']}, strength "
             f"{selected['strength']}; distance in ATR from the close"
+            + ("" if target["valid"] else f"; {LEVEL_CHECK_CODES[target['reason']]}")
         ),
         extra={
             "price_inside_zone": inside,
-            "selected_level": {
-                "low": selected["low"],
-                "high": selected["high"],
-                "level": selected["level"],
-                "strength": selected["strength"],
-                "latest_confirmed_at_utc": selected.get("latest_confirmed_at_utc"),
-            },
+            "selected_level": selected_level,
             "t5": t5,
+            "opposing_level_check": _level_view(target),
         },
         **base,
     )
+
+
+def _level_view(check: dict[str, Any]) -> dict[str, Any]:
+    """The shared-contract verdict carried in the TC6 check, in signal-free T6 vocabulary."""
+    return {
+        "valid": check["valid"],
+        "code": LEVEL_CHECK_CODES[check["reason"]],
+        "distance_atr": check["distance_atr"],
+    }
 
 
 def _pullback(features: dict, direction: str, p: DecisionParameters) -> dict[str, Any]:

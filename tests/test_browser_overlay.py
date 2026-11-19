@@ -47,6 +47,39 @@ def served(tmp_path):
         yield url, app, stub
 
 
+# FakeMT5 builds its bars from (t // step) % 7 and % 2: on the default H1 chart the synthetic
+# market repeats every 14 candles, so a test whose layout depends on prices pins the phase.
+# At phase 0 the label placer (by design) hides one zone label that cannot be placed without
+# overlap, which the pinned-label test's per-zone assertion does not expect; phases 1-13 place
+# every zone label. Phase 7 makes the test's synthetic market identical on every run.
+PATTERN_PHASE = 7
+
+
+def fixed_phase_now(phase: int):
+    """A synthetic market clock at a fixed phase of the fake's 14-hour price cycle (half past
+    the candle), running forward in real time and always in the past."""
+    real = time.time()
+    index = int(real // 3600)
+    target = (index - (index - phase) % 14) * 3600 + 1800
+    if target > real - 60:
+        target -= 14 * 3600
+    lag = real - target
+    return lambda: time.time() - lag
+
+
+@pytest.fixture
+def served_fixed_clock(tmp_path):
+    fake_now = fixed_phase_now(PATTERN_PHASE)
+    stub = StubAnalysis(ENVELOPES["R7"])
+    with _serve(
+        tmp_path,
+        fake=FakeMT5(now=fake_now),
+        clock=lambda: datetime.fromtimestamp(fake_now(), UTC),
+    ) as (url, app):
+        app.market_analysis = stub
+        yield url, app, stub
+
+
 def iso(moment: datetime) -> str:
     return moment.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
@@ -618,8 +651,8 @@ def test_outdated_and_unavailable_labels_are_also_drawn_legibly(page, served) ->
         assert sample["px"] == sample["want"]
 
 
-def test_pinned_zone_labels_stay_below_the_status_label(page, served) -> None:
-    url, _, stub = served
+def test_pinned_zone_labels_stay_below_the_status_label(page, served_fixed_clock) -> None:
+    url, _, stub = served_fixed_clock
     _ready(page, url)
     _enable(page)
     env = rebased("R7", _chart(page))

@@ -32,16 +32,26 @@ Methodology (documented here, reported in every result):
 - **Stop-loss**: beyond the last confirmed swing (``L_last`` for BUY, ``H_last`` for SELL) by
   ``stop_buffer_atr`` x ATR14, rounded away from the entry to the tick size.
 - **Take-profit**: the near edge of the level T6's TC6 check selected (nearest qualifying
-  opposing level), rounded towards the entry. No such level: rejected.
+  opposing level), rounded towards the entry. Phase 4 does not trust the checklist: it
+  revalidates that level independently with the shared structural-target contract
+  (``johanna.analysis.targets.validate_structural_target``, P6.2b.8) against the executable
+  entry -- a mapping with finite ``low`` <= ``high``, strength >= T6's ``min_level_strength``
+  and entirely beyond the entry. Missing, weak or malformed evidence is rejected
+  (``construction/target_structure``); a level not beyond the entry is rejected
+  (``construction/target_direction``). The contract reason code is reported in
+  ``target_validation``. TC6's ATR clearance is not a reward:risk measure; the gross and net
+  1:2 checks below are Phase 4's alone, and Phase 4 is the final authority.
 - **Spread**: a BUY's stop and target trigger on the bid and it entered at the ask, so the loss
   ``ask - SL`` and reward ``TP - ask`` already include the spread (SELL mirrored); it is not
   added again. ``gross_reward_risk`` is measured on these executable distances.
-- **Net reward:risk (costs gate)**: commission (a verified round-trip rate per lot only),
-  swap (verified terms; direction; holding-period assumption; triple-swap day; credits never
-  counted in favour) and slippage (a defensible bound per side only; none exists today, and
-  unmodelled slippage is never zero) are added to the loss and deducted from the reward. If
-  any cost cannot be established the net ratio is ``unverified`` and the proposal cannot be
-  approved, whatever the gross ratio; an estimated net ratio below 1:2 is rejected.
+- **Net reward:risk (costs gate)**: commission (current VERIFIED evidence only, converted to
+  USC per lot round trip through recorded steps), swap (live MT5 rates for the direction; an
+  APPROVED holding assumption for the timeframe; broker rollover events counted from the
+  evaluation time, triple day from MT5; credits never counted in favour) and slippage (current
+  VERIFIED evidence only; none exists today, and unmodelled slippage is never zero) are added
+  to the loss and deducted from the reward. If any cost cannot be established the net ratio is
+  ``unverified`` and the proposal cannot be approved, whatever the gross ratio; an estimated
+  net ratio below 1:2 is rejected. See ``johanna.cost_evidence`` (P6.2b.1).
 - **Money per lot** at the stop-loss is computed two ways and must agree within
   ``calc_tolerance``: from MT5 tick values (``tick_value_loss`` per ``tick_size``) and from
   the contract size with the verified conversion (profit currency -> USC). For a pair whose
@@ -54,10 +64,23 @@ Methodology (documented here, reported in every result):
   labelled price-risk-only illustration) and the 0.5% limit is not claimed.
 - **Margin** from MT5's margin calculator, reconciled with contract x volume x margin-currency
   rate / leverage. Disagreement or no calculator: unverified.
+- **Final budget (P6.2a M1)**: once the MT5 profit calculator agrees with the estimate (within
+  the numerical tolerance), the final loss is the *larger* of the two plus the verified costs,
+  and it is checked again against the original budget and the daily limit. Agreement within a
+  tolerance is never permission to exceed a limit.
+- **Classification (P6.2a M3)**: ``REJECTED`` = a verified input violates a rule;
+  ``UNVERIFIED`` = a required input or calculation cannot be established (stale quote, unusable
+  ATR, money-per-lot methods or the MT5 profit calculator disagreeing).
+- **Versions (P6.2a M4)**: every result carries the engine version, a fingerprint of the policy
+  values and the cost-terms version (``unavailable`` when no terms are configured). Each cost
+  component and holding assumption carries its own approval time and is void after
+  ``COST_TERMS_MAX_AGE`` (30 days).
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
@@ -65,10 +88,31 @@ from datetime import UTC, datetime, timedelta
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from typing import Any
 
+from johanna.analysis.features import DEFAULT_DECISION_PARAMETERS
+from johanna.analysis.targets import TARGET_WRONG_SIDE, validate_structural_target
+from johanna.cost_evidence import (
+    MAX_EVIDENCE_AGE,
+    WEEKDAYS,
+    CostComponent,
+    CostTerms,
+    HoldingAssumption,
+    assess_component,
+    assess_holding,
+    broker_terms_fingerprint,
+    holding_window,
+    rollover_charges,
+)
+
 APPROVED = "APPROVED_FOR_MANUAL_REVIEW"
 REJECTED = "REJECTED"
 UNVERIFIED = "UNVERIFIED"
-RISK_ENGINE_VERSION = 1
+# 2: P6.2a -- final budget check (M1), data-quality classifications (M3), version evidence (M4)
+# 3: P6.2b.1 -- structured cost evidence, timeframe holding assumptions, broker rollover events
+# 4: P6.2b.8 -- independent structural-target revalidation through the shared contract
+RISK_ENGINE_VERSION = 4
+# Agreed freshness policy for approved cost evidence: older (or undated) evidence fails closed.
+COST_TERMS_MAX_AGE = MAX_EVIDENCE_AGE
+COST_TERMS_UNAVAILABLE = "unavailable"
 NOTE = (
     "Proposed trade parameters for manual review only. Johanna has not placed and will not "
     "place this trade; approval is not an instruction to trade and guarantees neither "
@@ -104,7 +148,6 @@ _COST_DEAL_TYPES = {
 # a negative amount is counted as a realised cost (conservative), a positive one is ignored.
 _AMBIGUOUS_DEAL_TYPES = {5: "correction", 12: "interest"}
 _EXCLUDED_DEAL_TYPES = {2: "balance", 3: "credit", 6: "bonus"}  # deposits, withdrawals, credit
-_WEEKDAY_NAMES = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 
 
 @dataclass(frozen=True)
@@ -151,51 +194,36 @@ class RiskPolicy:
 RISK_POLICY = RiskPolicy()
 
 
-@dataclass(frozen=True)
-class CostTerms:
-    """Verified transaction-cost terms used for the net reward:risk (F1).
-
-    Empty by default: MT5 exposes no commission rate and historical zero-commission deals are
-    evidence about past trades, not a verified rate; no holding period is known in advance.
-    With these defaults every constructed proposal has an *unverified* net reward:risk and is
-    never approved. A value may only be supplied together with its source.
-    """
-
-    # Round-trip commission per 1.0 lot in the account currency, by exact broker symbol.
-    commission_round_trip_per_lot: Mapping[str, float] = field(default_factory=dict)
-    commission_source: str | None = None
-    # Number of daily swap rollovers the position is assumed to be held across.
-    holding_rollovers: int | None = None
-    holding_source: str | None = None
-    # A defensible adverse-slippage bound in points per execution side, by exact broker symbol.
-    # Empty = unmodelled (never zero): no approval and no verified sizing. Reserved for a
-    # future, separately authorised estimate; nothing in Johanna supplies one today.
-    slippage_bound_points_per_side: Mapping[str, float] = field(default_factory=dict)
-    slippage_source: str | None = None
-
-    def __post_init__(self) -> None:
-        for symbol, rate in self.commission_round_trip_per_lot.items():
-            if not isinstance(symbol, str) or not _finite(rate) or rate < 0:
-                raise ValueError("commission rates must be finite, non-negative and per symbol")
-        if self.commission_round_trip_per_lot and not self.commission_source:
-            raise ValueError("a commission rate needs its verified source")
-        for symbol, bound in self.slippage_bound_points_per_side.items():
-            if not isinstance(symbol, str) or not _finite(bound) or bound < 0:
-                raise ValueError("slippage bounds must be finite, non-negative and per symbol")
-        if self.slippage_bound_points_per_side and not self.slippage_source:
-            raise ValueError("a slippage bound needs its source")
-        if self.holding_rollovers is not None:
-            if isinstance(self.holding_rollovers, bool) or not isinstance(
-                self.holding_rollovers, int
-            ):
-                raise ValueError("holding_rollovers must be a whole number")
-            if not 0 <= self.holding_rollovers <= 260:
-                raise ValueError("holding_rollovers must be between 0 and 260")
-            if not self.holding_source:
-                raise ValueError("a holding-period assumption needs its source")
-
+# CostTerms, CostComponent and HoldingAssumption: johanna.cost_evidence (P6.2b.1).
+__all__ = ["CostComponent", "CostTerms", "HoldingAssumption"]
 
 COST_TERMS = CostTerms()
+
+
+def _fingerprint(value: Any) -> str:
+    text = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False, default=str)
+    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def policy_fingerprint(policy: RiskPolicy) -> str:
+    """Deterministic fingerprint of the risk-policy values (no account data, no secrets)."""
+    return _fingerprint({"risk_policy": asdict(policy)})
+
+
+def cost_terms_version(terms: CostTerms) -> str:
+    """``unavailable`` when no cost terms are configured, otherwise a fingerprint of every
+    component and holding assumption with all their fields (any change gives a new version)."""
+    if not terms.configured:
+        return COST_TERMS_UNAVAILABLE
+    return _fingerprint({"cost_terms": asdict(terms)})
+
+
+def version_evidence(policy: RiskPolicy, terms: CostTerms) -> dict[str, Any]:
+    return {
+        "risk_engine_version": RISK_ENGINE_VERSION,
+        "policy_fingerprint": policy_fingerprint(policy),
+        "cost_terms_version": cost_terms_version(terms),
+    }
 
 
 @dataclass(frozen=True)
@@ -214,7 +242,6 @@ class RiskInputs:
     policy: RiskPolicy = field(default=RISK_POLICY)
     requested_symbol: str | None = None  # as requested (pair or broker symbol, e.g. EURUSDc)
     costs: CostTerms = field(default=COST_TERMS)
-    trading_weekday: int | None = None  # weekday of the broker server day (Monday = 0)
 
 
 # ====================================================================== helpers
@@ -230,6 +257,29 @@ def _parse(value: Any) -> datetime | None:
     except ValueError:
         return None
     return parsed if parsed.tzinfo else None
+
+
+def _target_check(setup: dict[str, Any], direction: str, entry: float) -> dict[str, Any]:
+    """Revalidate the TC6 level with the shared contract; never trusts the checklist result.
+
+    The minimum strength is T6's default ``min_level_strength``, or the envelope's own declared
+    value when that is a stricter (higher) finite number -- never lower than the default."""
+    opportunity = setup.get("opportunity")
+    checklist = opportunity.get("checklist") if isinstance(opportunity, Mapping) else None
+    items = checklist if isinstance(checklist, Sequence) and not isinstance(checklist, str) else []
+    tc6 = next(
+        (c for c in items if isinstance(c, Mapping) and c.get("id") == "TC6_clearance"), None
+    )
+    level = tc6.get("selected_level") if tc6 is not None else None
+    minimum = DEFAULT_DECISION_PARAMETERS.min_level_strength
+    params = (setup.get("result") or {}).get("parameters")
+    declared = params.get("decision") if isinstance(params, Mapping) else None
+    declared = declared.get("min_level_strength") if isinstance(declared, Mapping) else None
+    if _finite(declared) and declared > minimum:
+        minimum = declared
+    return validate_structural_target(
+        level, direction=direction, reference_price=entry, min_strength=minimum
+    )
 
 
 def _finite(value: Any) -> bool:
@@ -278,12 +328,6 @@ def trading_day_start(now_utc: datetime, server_clock: Any) -> datetime:
     return server_clock.to_utc(wall - (wall % 86400))
 
 
-def trading_weekday(day_start_utc: datetime, server_clock: Any) -> int:
-    """Weekday (Monday = 0) of the broker server day starting at ``day_start_utc``."""
-    wall = server_clock.from_utc(day_start_utc)
-    return (datetime(1970, 1, 1) + timedelta(seconds=wall)).weekday()
-
-
 class _Result:
     """Accumulates the structured result; the final status is derived, never set directly."""
 
@@ -294,6 +338,7 @@ class _Result:
         self.warnings: list[str] = []
         self.data: dict[str, Any] = {
             "risk_engine_version": RISK_ENGINE_VERSION,
+            "versions": version_evidence(policy, inputs.costs),
             "status": None,
             "symbol": inputs.symbol,
             "requested_symbol": inputs.requested_symbol or inputs.symbol,
@@ -393,6 +438,7 @@ def plan_trade(inputs: RiskInputs) -> dict[str, Any]:
         "instrument": instrument,
         "trade": trade,
         "sizing": sizing,
+        "daily": daily,
         "policy": policy,
     }
     return plan
@@ -538,10 +584,11 @@ def _instrument(inputs: RiskInputs, r: _Result) -> dict[str, Any] | None:
         return None
     age = (inputs.evaluated_at - quote_time).total_seconds()
     if age > policy.max_quote_age_seconds:
+        # M3: a stale quote means the current price cannot be established (not a rule breach)
         r.check(
             "data",
             "quote_fresh",
-            "failed",
+            "unverified",
             f"quote is {age:.1f} s old (limit {policy.max_quote_age_seconds:g} s)",
         )
         return None
@@ -819,7 +866,8 @@ def _construct(
     bid, ask = ins["bid"], ins["ask"]
     atr = (features.get("latest") or {}).get("ATR14") or {}
     if not atr.get("usable") or not _finite(atr.get("value")) or atr["value"] <= 0:
-        r.check("construction", "atr", "failed", "ATR14 unavailable: no stop-loss buffer")
+        # M3: missing indicator data, not a rule breach
+        r.check("construction", "atr", "unverified", "ATR14 unavailable: no stop-loss buffer")
         return None
     swings = features.get("swings") or {}
     role = "L_last" if buy else "H_last"
@@ -829,21 +877,27 @@ def _construct(
             "construction", "stop_structure", "failed", f"no confirmed {role} swing for a stop-loss"
         )
         return None
-    tc6 = next(
-        (c for c in setup["opportunity"].get("checklist") or [] if c.get("id") == "TC6_clearance"),
-        {},
-    )
-    level = tc6.get("selected_level")
-    if not level or not _finite(level.get("low")) or not _finite(level.get("high")):
+    entry = ask if buy else bid
+    target_check = _target_check(setup, direction, entry)
+    r.data["target_validation"] = {
+        "contract": "johanna.analysis.targets.validate_structural_target",
+        "reference": "ask" if buy else "bid",
+        "valid": target_check["valid"],
+        "reason": target_check["reason"],
+        "detail": target_check["detail"],
+    }
+    if not target_check["valid"]:
+        wrong_side = target_check["reason"] == TARGET_WRONG_SIDE
         r.check(
             "construction",
-            "target_structure",
+            "target_direction" if wrong_side else "target_structure",
             "failed",
-            "no qualifying opposing support/resistance level for a take-profit (TC6)",
+            f"structural take-profit level rejected ({target_check['reason']}): "
+            f"{target_check['detail']} (TC6 level revalidated by Phase 4)",
         )
         return None
+    level = target_check["target"]
     buffer = inputs.policy.stop_buffer_atr * atr["value"]
-    entry = ask if buy else bid
     if buy:
         stop = _round_to_tick(pivot["price"] - buffer, tick, "down")
         target = _round_to_tick(level["low"], tick, "down")
@@ -1003,10 +1057,11 @@ def _price_money(
     if not _close(money["loss_tick"], money["loss_contract"], policy.calc_tolerance) or not _close(
         money["reward_tick"], money["reward_contract"], policy.calc_tolerance
     ):
+        # M3: the money at risk cannot be established when the two methods disagree
         r.check(
             "per_trade_risk",
             "methods_agree",
-            "failed",
+            "unverified",
             "tick-value and contract-size calculations disagree: loss/lot "
             f"{money['loss_tick']:.4f} vs {money['loss_contract']:.4f}, reward/lot "
             f"{money['reward_tick']:.4f} vs {money['reward_contract']:.4f} {account['currency']}",
@@ -1103,6 +1158,10 @@ def _size(
         "estimated_reward_gross": None,
         "estimated_reward_net": None,
         "estimated_loss_percent_of_equity": None,
+        # M1: set only after the MT5 calculator reconciled (never estimated otherwise)
+        "final_loss": None,
+        "final_loss_percent_of_equity": None,
+        "final_loss_basis": None,
     }
     if verified and volume:
         total = volume * total_per_lot
@@ -1182,22 +1241,16 @@ def _size(
             f"<= limit {daily['_limit']:.2f} "
             f"{currency} ({policy.max_daily_risk * 100:g}% of min(balance, equity))",
         )
-    return {**sizing, "volume": volume, "verified": True, "estimated_loss_raw": estimated_loss}
-
-
-def _swap_units(start_weekday: int, rollovers: int, triple_weekday: int) -> int:
-    """Swap charges for ``rollovers`` daily rollovers from the current server day.
-
-    Rollovers happen at the end of each Monday-Friday server day (none on Saturday/Sunday);
-    the one ending on the broker's triple-swap weekday is charged three times.
-    """
-    units, day, done = 0, start_weekday, 0
-    while done < rollovers:
-        if day < 5:  # Monday-Friday
-            units += 3 if day == triple_weekday else 1
-            done += 1
-        day = (day + 1) % 7
-    return units
+    return {
+        **sizing,
+        "volume": volume,
+        "verified": True,
+        "estimated_loss_raw": estimated_loss,
+        # unrounded working values for the final budget check (M1); never published
+        "budget_raw": budget,
+        "price_loss_per_lot_raw": price_loss,
+        "cost_per_lot_raw": cost,
+    }
 
 
 def _cost_components(
@@ -1205,11 +1258,13 @@ def _cost_components(
 ) -> dict[str, Any]:
     """Applicable transaction costs per 1.0 lot (F1), shared by the net gate and sizing.
 
-    Spread is already inside the price distances and is never added again. Commission needs a
-    verified round-trip rate; swap for the trade's direction needs verified terms and, when it
-    is a cost, a holding-period assumption (credits never help); slippage needs a defensible
-    bound (``CostTerms.slippage_bound_points_per_side``), applied adversely to the entry and
-    the exit. Anything missing -> not established (never zero).
+    Spread is already inside the price distances and is never added again. Commission needs
+    current VERIFIED evidence (converted to USC per lot round trip); swap for the trade's
+    direction uses the live MT5 rate and, when it is a cost, an APPROVED holding assumption for
+    the timeframe and the broker rollover events (credits never help); slippage needs current
+    VERIFIED evidence (points per side), applied adversely to the entry and the exit. Each
+    component is assessed independently (``johanna.cost_evidence``). Anything missing -> not
+    established (never zero).
     """
     terms, currency = inputs.costs, account["currency"]
     buy = trade["side"] == "buy"
@@ -1218,46 +1273,74 @@ def _cost_components(
     spread_points = ins.get("spread_points")
     spread_per_lot = spread_points * point_value if _finite(spread_points) else None
     problems: list[str] = []
-    rate = terms.commission_round_trip_per_lot.get(broker)
-    if rate is None:
-        commission = {
-            "status": "unverified",
-            "per_lot_round_trip": None,
-            "source": None,
-            "treatment": "no verified commission rate: the MT5 symbol specification has none, "
-            "and historical zero-commission deals are evidence about past trades, not a rate",
-        }
-        problems.append("commission rate not verified")
-    else:
+    at = inputs.evaluated_at
+    live_terms = broker_terms_fingerprint(
+        broker, account.get("currency"), (account.get("unit") or {}).get("kind"), ins
+    )
+    evidence = assess_component(
+        terms.component("commission", broker),
+        "commission",
+        at,
+        broker,
+        live_terms=live_terms,
+        contract_size=ins.get("contract_size"),
+    )
+    if evidence["usable"]:
+        rate = evidence["conversion"]["usc_per_lot_round_trip"]
         commission = {
             "status": "verified",
             "per_lot_round_trip": rate,
-            "source": terms.commission_source,
-            "treatment": "verified round-trip rate per lot: added to the loss, deducted from "
-            "the reward and included in position sizing",
+            "currency": currency,
+            "source": evidence["record"]["source_reference"],
+            "evidence": evidence,
+            "treatment": "verified evidence converted to USC per lot round trip: added to the "
+            "loss, deducted from the reward and included in position sizing",
         }
+    else:
+        rate = None
+        commission = {
+            "status": "unverified",
+            "per_lot_round_trip": None,
+            "currency": currency,
+            "source": None,
+            "evidence": evidence,
+            "treatment": "no current verified commission evidence: the MT5 symbol "
+            "specification has no rate, and historical zero-commission deals are evidence "
+            "about past trades, not a rate",
+        }
+        problems.append(f"commission not verified ({evidence['reason']})")
     swap = _swap_cost(inputs, ins, buy)
     if swap["status"] != "established":
         problems.append(swap["reason"])
-    bound = terms.slippage_bound_points_per_side.get(broker)
+    slip = assess_component(
+        terms.component("slippage", broker),
+        "slippage",
+        at,
+        broker,
+        ins.get("digits"),
+        live_terms=live_terms,
+    )
+    bound = slip["conversion"]["points_per_side"] if slip["usable"] else None
     if bound is None:
         slippage = {
             "status": "unmodelled",
             "bound_points_per_side": None,
             "per_lot": None,
             "source": None,
-            "treatment": "unmodelled: no verified estimate or conservative bound is available, "
+            "evidence": slip,
+            "treatment": "unmodelled: no current verified estimate or bound is available, "
             "and it is not treated as zero -- the net 1:2 requirement and the 0.5% limit "
             "cannot be established",
         }
-        problems.append("slippage unmodelled (no verified estimate or bound)")
+        problems.append(f"slippage unmodelled ({slip['reason']})")
     else:
         slippage = {
             "status": "bounded",
             "bound_points_per_side": bound,
             "per_lot": round(2 * bound * point_value, 6),
-            "source": terms.slippage_source,
-            "treatment": "conservative bound applied adversely to the entry and the exit",
+            "source": slip["record"]["source_reference"],
+            "evidence": slip,
+            "treatment": "verified bound applied adversely to the entry and the exit",
         }
     established = not problems
     components = {
@@ -1268,6 +1351,13 @@ def _cost_components(
     cost = sum(components.values()) if established else None
     view = {
         "status": "established" if established else "unverified",
+        "terms": {
+            "version": cost_terms_version(terms),
+            "configured": terms.configured,
+            "max_age_days": COST_TERMS_MAX_AGE.days,
+            "holding": swap.get("holding"),
+            "live_broker_terms_fingerprint": live_terms,
+        },
         "per_lot_total": round(cost, 6) if cost is not None else None,
         "spread": {
             "points": spread_points,
@@ -1280,10 +1370,14 @@ def _cost_components(
         "assumptions": [
             "spread included once in the price distances (not added again)",
             f"commission: {commission['status']}"
-            + (f" ({rate} {currency}/lot round trip, {terms.commission_source})" if rate else ""),
+            + (
+                f" ({rate:g} {currency}/lot round trip, {commission['source']})"
+                if rate is not None
+                else ""
+            ),
             f"swap: {swap['summary']}",
             f"slippage: {slippage['status']}"
-            + (f" ({bound} points per side, {terms.slippage_source})" if bound is not None else ""),
+            + (f" ({bound:g} points per side, {slippage['source']})" if bound is not None else ""),
         ],
     }
     return {
@@ -1350,18 +1444,22 @@ def _net_gate(
 
 
 def _swap_cost(inputs: RiskInputs, ins: dict[str, Any], buy: bool) -> dict[str, Any]:
-    """Swap cost per lot for the trade's direction under the holding-period assumption."""
+    """Swap cost per lot for the trade's direction: live MT5 rate x the broker rollover charges
+    inside the APPROVED holding window for the timeframe (``johanna.cost_evidence``)."""
     swap = ins["swap"]
     mode, rate = swap.get("swap_mode"), swap.get("swap_long" if buy else "swap_short")
     triple = swap.get("swap_rollover3days")
+    holding = assess_holding(
+        inputs.costs.holding.get(inputs.timeframe), inputs.timeframe, inputs.evaluated_at
+    )
     base = {
         "mode": mode,
         "direction_rate": rate,
         "long_rate": swap.get("swap_long"),
         "short_rate": swap.get("swap_short"),
         "triple_swap_day": triple,
-        "holding_rollovers": inputs.costs.holding_rollovers,
-        "holding_source": inputs.costs.holding_source,
+        "rate_source": "live MT5 symbol specification",
+        "holding": holding,
         "cost_per_lot": None,
     }
 
@@ -1400,21 +1498,36 @@ def _swap_cost(inputs: RiskInputs, ins: dict[str, Any], buy: bool) -> dict[str, 
             "summary": f"{'credit' if per_rollover > 0 else 'zero'} for this direction "
             "(not counted in favour)",
         }
-    holding = inputs.costs.holding_rollovers
-    if holding is None:
-        return unverified("holding period unknown while swap is a cost for this direction")
-    if triple not in _WEEKDAY_NAMES or inputs.trading_weekday is None:
-        return unverified("triple-swap day or server weekday not verified")
-    units = _swap_units(inputs.trading_weekday, holding, _WEEKDAY_NAMES.index(triple))
+    if not holding["usable"]:
+        return unverified(f"holding period not approved: {holding['reason']}")
+    if triple not in WEEKDAYS[:5]:
+        return unverified("triple-swap day not verified")
+    # H-2: the proposal may be entered until it expires (next candle close) and then held up
+    # to max_hours, so every rollover from now to expiry + max_hours is counted.
+    as_of = _parse(((inputs.analysis or {}).get("result") or {}).get("as_of_utc"))
+    seconds = _TIMEFRAME_SECONDS.get(inputs.timeframe)
+    if as_of is None or seconds is None:
+        return unverified("entry validity (candle as-of time) not established")
+    entry_valid_until = as_of + timedelta(seconds=seconds)
+    try:
+        start, end = holding_window(inputs.evaluated_at, entry_valid_until, holding["max_hours"])
+        schedule = rollover_charges(start, end, WEEKDAYS.index(triple))
+    except ValueError as exc:
+        return unverified(f"rollover schedule not established ({exc})")
+    base["entry_valid_until_utc"] = _iso(entry_valid_until)
+    units = schedule["units"]
     cost = -per_rollover * units
     return {
         **base,
         "status": "established",
         "cost_per_lot": round(cost, 6),
         "charge_units": units,
+        "rollovers": schedule,
         "reason": None,
-        "summary": f"{holding} rollover(s) assumed ({inputs.costs.holding_source}) = {units} "
-        f"charge(s) incl. triple on {triple}: {cost:.4f} per lot",
+        "summary": f"{len(schedule['events'])} rollover(s) from now to entry expiry + "
+        f"{holding['max_hours']:g} h ({holding['policy_version']}) = {units} charge(s) incl. "
+        f"triple on {triple}: "
+        f"{cost:.4f} per lot; holiday adjustments not modelled",
     }
 
 
@@ -1522,15 +1635,73 @@ def finalise(
         agree = _close(calc_loss, expected_loss, policy.calc_tolerance, slack) and _close(
             calc_reward, expected_reward, policy.calc_tolerance, slack
         )
+        # M3: a disagreement means the money at risk cannot be established (unverified)
         r.check(
             "per_trade_risk",
             "mt5_profit_calculator",
-            "passed" if agree else "failed",
+            "passed" if agree else "unverified",
             f"MT5 calculator loss {calc_loss:.2f} / reward {calc_reward:.2f} vs tick-value "
             f"{expected_loss:.2f} / {expected_reward:.2f} {currency}",
         )
+        if agree:
+            _final_budget(r, account, ctx, calc_loss)
     _margin(r, account, ins, trade, volume, margin, policy)
     return _clean(r.done())
+
+
+def _final_budget(
+    r: _Result, account: dict[str, Any], ctx: Mapping[str, Any], calc_loss: float
+) -> None:
+    """M1: the reconciliation tolerance compares two calculations; it never permits a loss
+    above the budget. The final loss is the larger of MT5's loss at the stop-loss and
+    Johanna's price-loss estimate for the final volume, plus the verified costs, checked again
+    against the original per-trade budget and the daily limit."""
+    sizing, daily = ctx["sizing"], ctx["daily"]
+    volume, currency = sizing["volume"], account["currency"]
+    estimate = volume * sizing["price_loss_per_lot_raw"]
+    price_loss = max(calc_loss, estimate)
+    final = price_loss + volume * sizing["cost_per_lot_raw"]
+    budget = sizing["budget_raw"]
+    r.data["sizing"].update(
+        final_loss=round(final, 4),
+        final_loss_percent_of_equity=round(final / account["equity"] * 100, 4),
+        final_loss_basis="larger of the MT5 calculator loss and Johanna's estimate, plus "
+        "verified costs",
+    )
+    if final > budget * (1 + 1e-12):
+        r.check(
+            "per_trade_risk",
+            "final_budget",
+            "failed",
+            f"final loss {final:.4f} {currency} (MT5 {calc_loss:.4f}, estimate {estimate:.4f}, "
+            f"plus costs) exceeds the risk budget {budget:.4f}",
+        )
+        return
+    r.check(
+        "per_trade_risk",
+        "final_budget",
+        "passed",
+        f"final loss {final:.4f} {currency} <= risk budget {budget:.4f} (larger of MT5 "
+        f"{calc_loss:.4f} and estimate {estimate:.4f}, plus costs)",
+    )
+    if daily.get("status") == "verified":
+        total = daily["_used"] + final
+        if total > daily["_limit"] * (1 + 1e-12):
+            r.check(
+                "daily_risk",
+                "final_limit",
+                "failed",
+                f"daily risk {total:.4f} with the final loss would exceed the limit "
+                f"{daily['_limit']:.4f} {currency}",
+            )
+            return
+        r.check(
+            "daily_risk",
+            "final_limit",
+            "passed",
+            f"used {daily['_used']:.4f} + final {final:.4f} <= limit {daily['_limit']:.4f} "
+            f"{currency}",
+        )
 
 
 def _margin(

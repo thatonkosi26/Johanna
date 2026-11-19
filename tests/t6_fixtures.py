@@ -1,7 +1,9 @@
 """Shared T6 test fixtures (not a test module).
 
 - ``trend_bars``: deterministic drift + oscillation H1 histories on the real T3 schedule, which
-  produce genuine T4 -> T5 -> T6 results (found once by search; parameters frozen here).
+  produce genuine T4 -> T5 -> T6 results (found once by search; parameters frozen here). By
+  default (P6.2b.8) an early plateau supplies a genuine opposing structural target, so the
+  history is a real R7 candidate; ``target=False`` is the plain trend (no target: R6).
 - ``base_features``: a hand-written bullish feature set with explicit numbers (the §8.3 design
   example), so condition and setup tests do not depend on the feature implementation.
 - ``reflect``: the price reflection p -> 2M - p, written independently of T6.
@@ -44,11 +46,25 @@ def trend_bars(
     period: int = 16,
     sign: int = 1,
     end: datetime = END,
+    target: bool = True,
 ) -> list[dict]:
-    """Rising (sign=1) or falling (sign=-1) oscillating path; each open = previous close."""
+    """Rising (sign=1) or falling (sign=-1) oscillating path; each open = previous close.
+
+    ``target`` (P6.2b.8, default): bars ``count-640 .. count-540`` (inside the 661-candle T6
+    window) form a flat oscillating plateau ``drift*count + 0.02`` beyond the start, i.e. beyond
+    the final price. Its repeated swing extremes form a strength >= 2 opposing T5 level ~27 ATR
+    past the close -- a genuine structural target for TC6 -- while the recent bars (close, ATR,
+    swings, pullback) are unchanged. ``target=False`` gives the plain trend, which has no
+    qualifying opposing level, so TC6 fails (no structural target) and T6 returns R6.
+    """
     bars, prev = [], None
+    start = max(0, count - 640)
     for i, t in enumerate(schedule(count, end)):
-        mid = 1.1 + sign * (drift * i + amp * math.sin(2 * math.pi * i / period))
+        wave = amp * math.sin(2 * math.pi * i / period)
+        if target and start <= i < start + 100:
+            mid = 1.1 + sign * (drift * count + 0.02 + wave)
+        else:
+            mid = 1.1 + sign * (drift * i + wave)
         close = round(mid, 5)
         open_ = prev if prev is not None else close
         high = round(max(open_, close) + 0.0002, 5)

@@ -30,6 +30,8 @@ Every bar carries ``complete``: ``False`` while the candle can still change (see
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import logging
 import math
 import multiprocessing
@@ -38,9 +40,10 @@ import os
 import threading
 import time
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -85,6 +88,49 @@ _CONNECTION_LOSS = frozenset(
         "mt5_busy",
     }
 )
+
+# P6.1 background (shadow evaluation) reads -- docs/phase-5-architecture.md §7.2. A call made
+# inside ``background_reads()`` uses the existing workers, but is admitted only when the worker
+# is idle, nobody is waiting for it and it has been quiet for ``quiet_seconds``; otherwise it
+# is refused at once with ``BACKGROUND_DEFERRED`` (never queued, never waits). Background reads
+# never change the connection state, the server-clock check or the quote and bar caches that
+# the dashboard's freshness is judged by, and never fall back to cached or archived bars.
+BACKGROUND_DEFERRED = "background_deferred"
+BACKGROUND_QUIET_SECONDS = 0.75
+
+
+@dataclass
+class BackgroundReads:
+    """One background evaluation attempt's view of worker admission."""
+
+    quiet_seconds: float = BACKGROUND_QUIET_SECONDS
+    admitted: int = 0
+    deferrals: int = 0
+
+
+_BACKGROUND: contextvars.ContextVar[BackgroundReads | None] = contextvars.ContextVar(
+    "johanna_background_reads", default=None
+)
+
+
+@contextlib.contextmanager
+def background_reads(quiet_seconds: float = BACKGROUND_QUIET_SECONDS) -> Iterator[BackgroundReads]:
+    """Mark the MT5 reads made by this thread (and context) as background reads."""
+    reads = BackgroundReads(quiet_seconds)
+    token = _BACKGROUND.set(reads)
+    try:
+        yield reads
+    finally:
+        _BACKGROUND.reset(token)
+
+
+def in_background() -> bool:
+    return _BACKGROUND.get() is not None
+
+
+def _deferred(reads: BackgroundReads, why: str) -> MarketUnavailable:
+    reads.deferrals += 1
+    return MarketUnavailable(BACKGROUND_DEFERRED, f"Background read deferred: {why}.")
 
 
 class MarketUnavailable(Exception):
@@ -554,6 +600,27 @@ class MT5Session:
 
         return self._run(job)
 
+    def reconciliation(self, from_utc: datetime, to_utc: datetime) -> dict[str, Any]:
+        """P6.3: positions, orders and deals in [from_utc, to_utc] with broker identifiers
+        (read-only; converted to HMAC references by the caller before use)."""
+
+        def job(adapter: MetaTrader5Adapter) -> dict[str, Any]:
+            clock = adapter.server_clock
+            raw = adapter.reconciliation_snapshot(clock.from_utc(from_utc), clock.from_utc(to_utc))
+            retrieved = self._clock()
+            for group, key in (("positions", "time"), ("orders", "time_setup"), ("deals", "time")):
+                for item in raw[group]:
+                    seconds = item.get(key)
+                    item["time_utc"] = clock.to_utc(float(seconds)) if seconds is not None else None
+            return {
+                **raw,
+                "coverage_from_utc": from_utc,
+                "coverage_to_utc": to_utc,
+                "retrieved_at": retrieved,
+            }
+
+        return self._run(job)
+
     def risk_calc(self, requests: Sequence[tuple]) -> list[dict[str, Any]]:
         """Phase 4: MT5 calculator results for ``("profit", side, symbol, volume, open, close)``
         and ``("margin", side, symbol, volume, price)`` requests. Per-request failures are
@@ -712,11 +779,23 @@ class ThreadSessionRunner:
         self._executor: ThreadPoolExecutor | None = None
         self._inflight: dict[tuple, Future] = {}
         self._job_started: float | None = None
+        self._last_finished = float("-inf")
         self._lock = threading.Lock()
 
     def run(self, op: str, args: tuple, timeout: float) -> Any:
         key = (op, *args)
+        background = _BACKGROUND.get()
         with self._lock:
+            if background is not None:
+                # Admitted only when idle, nothing in flight and quiet; never queued.
+                if self._job_started is not None or any(
+                    not f.done() for f in self._inflight.values()
+                ):
+                    raise _deferred(background, "the worker is busy")
+                if time.monotonic() - self._last_finished < background.quiet_seconds:
+                    raise _deferred(background, "the worker was used moments ago")
+                background.admitted += 1
+                key = ("background", *key)  # never joins a dashboard job's result
             started = self._job_started
             if started is not None and time.monotonic() - started > timeout:
                 raise MarketUnavailable(
@@ -726,7 +805,7 @@ class ThreadSessionRunner:
             if future is None or future.done():
                 if self._executor is None:
                     self._executor = ThreadPoolExecutor(1, thread_name_prefix="johanna-mt5")
-                future = self._executor.submit(self._call, op, args)
+                future = self._executor.submit(self._call, op, args, background is not None)
                 self._inflight[key] = future
         try:
             return future.result(timeout=timeout)
@@ -735,7 +814,7 @@ class ThreadSessionRunner:
                 "timeout", f"MT5 did not respond within {timeout:.0f} s"
             ) from None
 
-    def _call(self, op: str, args: tuple) -> Any:
+    def _call(self, op: str, args: tuple, background: bool = False) -> Any:
         with self._lock:
             self._job_started = time.monotonic()
         try:
@@ -745,6 +824,8 @@ class ThreadSessionRunner:
         finally:
             with self._lock:
                 self._job_started = None
+                if not background:  # the quiet window measures foreground activity only
+                    self._last_finished = time.monotonic()
 
     def close(self) -> None:
         executor, self._executor = self._executor, None
@@ -844,6 +925,10 @@ class ProcessSessionRunner:
         self._retry_at = 0.0
         self._last_failure: MarketUnavailable | None = None
         self.spawn_count = 0
+        # P6.1 admission: foreground callers waiting for the lock, and when it was last freed.
+        self._waiting = 0
+        self._waiting_lock = threading.Lock()
+        self._last_release = float("-inf")
 
     @property
     def pid(self) -> int | None:
@@ -854,9 +939,30 @@ class ProcessSessionRunner:
         """Seconds until the next worker start is allowed (0 when not backing off)."""
         return max(0.0, self._retry_at - self._monotonic()) if self._failures else 0.0
 
+    def _acquire(self, timeout: float) -> None:
+        background = _BACKGROUND.get()
+        if background is None:
+            with self._waiting_lock:
+                self._waiting += 1
+            try:
+                acquired = self._lock.acquire(timeout=timeout)
+            finally:
+                with self._waiting_lock:
+                    self._waiting -= 1
+            if not acquired:
+                raise MarketUnavailable("mt5_busy", "MT5 is still answering a previous request.")
+            return
+        # Background: never waits and never queues behind (or ahead of) a foreground request.
+        if self._waiting:
+            raise _deferred(background, "a foreground request is waiting")
+        if self._monotonic() - self._last_release < background.quiet_seconds:
+            raise _deferred(background, "the worker was used moments ago")
+        if not self._lock.acquire(blocking=False):
+            raise _deferred(background, "the worker is busy")
+        background.admitted += 1
+
     def run(self, op: str, args: tuple, timeout: float) -> Any:
-        if not self._lock.acquire(timeout=timeout):
-            raise MarketUnavailable("mt5_busy", "MT5 is still answering a previous request.")
+        self._acquire(timeout)
         try:
             self._refuse_during_backoff()
             try:
@@ -885,6 +991,8 @@ class ProcessSessionRunner:
                 ) from None
             self._failures, self._retry_at, self._last_failure = 0, 0.0, None
         finally:
+            if _BACKGROUND.get() is None:  # the quiet window measures foreground activity only
+                self._last_release = self._monotonic()
             self._lock.release()
         if reply[0] == "ok":
             return reply[1]
@@ -1096,6 +1204,8 @@ class LiveMarketService:
                 self._last_verified = now
 
     def _request(self, runner: Any, op: str, args: tuple, timeout: float) -> Any:
+        if in_background():  # P6.1: no connection, clock-check or freshness state changes
+            return runner.run(op, args, timeout)["value"]
         try:
             payload = runner.run(op, args, timeout)
         except MarketUnavailable as exc:
@@ -1253,12 +1363,18 @@ class LiveMarketService:
         """Phase 4: positions, pending orders and deals since ``day_start_utc`` (read-only)."""
         return self._worker_read("exposure", (day_start_utc,))
 
+    def reconciliation_read(self, from_utc: datetime, to_utc: datetime) -> dict[str, Any]:
+        """P6.3: read-only reconciliation snapshot on the existing quotes worker."""
+        return self._worker_read("reconciliation", (from_utc, to_utc))
+
     def risk_calculations(self, requests: Sequence[tuple]) -> dict[str, Any]:
         """Phase 4: MT5 calculator results (``order_calc_profit``/``order_calc_margin``)."""
         return self._worker_read("risk_calc", (tuple(requests),))
 
     def _worker_read(self, op: str, args: tuple) -> dict[str, Any]:
         """One read-only job on the quotes worker; ``{"identity", "value"}``."""
+        if in_background():  # P6.1: no connection-state changes
+            return self._quote_runner.run(op, args, self.request_timeout)
         try:
             payload = self._quote_runner.run(op, args, self.request_timeout)
         except MarketUnavailable as exc:
@@ -1282,6 +1398,11 @@ class LiveMarketService:
         if cached is not None and now - cached["fetched_at"] < self.bars_ttl:
             # Within the cache TTL: same MT5 observation, served again (never presented as new).
             return self._bars_payload(cached, LIVE, now, from_cache=True)
+        if in_background():
+            # P6.1: a fresh MT5 read only -- never stored in the dashboard's cache, never a
+            # CACHED or archived fallback (a failure or deferral is raised to the scheduler).
+            entry = self._request(self._bar_runner, "bars", key, self.bars_timeout)
+            return self._bars_payload(entry, LIVE, self._clock())
         try:
             entry = self._request(self._bar_runner, "bars", key, self.bars_timeout)
         except MarketUnavailable as exc:

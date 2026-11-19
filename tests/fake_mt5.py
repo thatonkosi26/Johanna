@@ -196,14 +196,17 @@ class FakeMT5:
         if "positions_get" in self.failing_reads:
             return None
         return tuple(
-            SimpleNamespace(ticket=900001, comment="private", magic=0, **p) for p in self.positions
+            SimpleNamespace(**{"ticket": 900001, "comment": "private", "magic": 0, **p})
+            for p in self.positions
         )
 
     def orders_get(self):
         self._call("orders_get")
         if "orders_get" in self.failing_reads:
             return None
-        return tuple(SimpleNamespace(ticket=900002, comment="private", **o) for o in self.orders)
+        return tuple(
+            SimpleNamespace(**{"ticket": 900002, "comment": "private", **o}) for o in self.orders
+        )
 
     def history_deals_get(self, date_from, date_to):
         self._call("history_deals_get")
@@ -211,7 +214,15 @@ class FakeMT5:
         if "history_deals_get" in self.failing_reads:
             return None
         return tuple(
-            SimpleNamespace(ticket=900003, order=900004, position_id=900005, comment="private", **d)
+            SimpleNamespace(
+                **{
+                    "ticket": 900003,
+                    "order": 900004,
+                    "position_id": 900005,
+                    "comment": "private",
+                    **d,  # P6.3 tests give each deal its own ticket / position
+                }
+            )
             for d in self.deals
             if date_from <= d["time"] <= date_to
         )
@@ -309,7 +320,9 @@ def _specification(name: str, spec: dict) -> dict:
         "trade_freeze_level": 0,
         "trade_mode": 4,
         "swap_mode": 1,
-        "swap_long": -5.7,
+        # Phase 1 (M-10): zero by default, so results never depend on the wall-clock rollover
+        # schedule; swap tests set rates explicitly (risk_fixtures.negative_swap).
+        "swap_long": 0.0,
         "swap_short": 0.0,
         "swap_rollover3days": 3,
         "spread": round((spec["ask"] - spec["bid"]) / spec["point"]),

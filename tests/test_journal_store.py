@@ -69,16 +69,16 @@ def test_genuine_first_creation(tmp_path) -> None:
     store = started(tmp_path, acl=acl)
     status = store.status()
     assert status["state"] == "ready" and status["key_status"] == "verified"
-    assert status["hmac_available"] is True and status["schema_version"] == 1
+    assert status["hmac_available"] is True and status["schema_version"] == LATEST
     # a verified key is only a prerequisite; the capabilities are not implemented (P5.3/P5.4)
     assert status["hmac_prerequisite"] == "verified"
-    assert status["monitoring_and_reconciliation"] == "not_implemented"
+    assert status["monitoring_and_reconciliation"] == "reported_by_monitoring_service"
     assert names(tmp_path) == [KEY_NAME, DB_NAME]  # no sidecars left, nothing else created
     key = (tmp_path / KEY_NAME).read_bytes()
     assert len(key) == 32
     with raw(tmp_path) as conn:
         assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST
         check = conn.execute("SELECT value FROM meta WHERE key='key_check'").fetchone()[0]
     assert check == key_check_value(key)
     assert acl.calls == [(KEY_NAME, False)]
@@ -126,7 +126,7 @@ def test_missing_key_refuses_hmac_and_never_regenerates(tmp_path) -> None:
     assert status["state"] == "ready"  # decisions remain readable/writable
     assert status["key_status"] == "missing" and status["hmac_available"] is False
     assert status["hmac_prerequisite"] == "refused"
-    assert status["monitoring_and_reconciliation"] == "not_implemented"
+    assert status["monitoring_and_reconciliation"] == "reported_by_monitoring_service"
     assert not (tmp_path / KEY_NAME).exists()
     with pytest.raises(JournalError):
         store.broker_ref("position", 123)
@@ -138,7 +138,7 @@ def test_mismatched_key_refuses_hmac(tmp_path) -> None:
     store = started(tmp_path)
     assert store.status()["key_status"] == "mismatch" and not store.hmac_available
     assert store.status()["hmac_prerequisite"] == "refused"
-    assert store.status()["monitoring_and_reconciliation"] == "not_implemented"
+    assert store.status()["monitoring_and_reconciliation"] == "reported_by_monitoring_service"
 
 
 def test_key_permissions_not_user_only_refuse_hmac(tmp_path) -> None:
@@ -243,33 +243,36 @@ def test_cleanup_failure_fails_closed_on_next_start(tmp_path, monkeypatch) -> No
 
 
 # ---------------------------------------------------------------- migrations
-V2 = (2, "CREATE TABLE p52_placeholder (id INTEGER PRIMARY KEY);")
+# Version-agnostic: each test migrates from the shipped latest schema to the next one.
+LATEST = js.MIGRATIONS[-1][0]
+NEXT = LATEST + 1
+V2 = (NEXT, "CREATE TABLE next_placeholder (id INTEGER PRIMARY KEY);")
 
 
 def test_migration_creates_verified_premigration_backup_first(tmp_path) -> None:
     started(tmp_path).stop()
     store = started(tmp_path, migrations=(*js.MIGRATIONS, V2))
-    assert store.status()["state"] == "ready" and store.latest_version == 2
+    assert store.status()["state"] == "ready" and store.latest_version == NEXT
     with raw(tmp_path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == NEXT
     pairs = store.valid_pairs()
     assert [p.name.split("-")[1] for p in pairs] == ["premigration"]
-    assert "premigration-v1" in pairs[0].name
-    with sqlite3.connect(pairs[0] / DB_NAME) as conn:  # the backup holds the v1 schema
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+    assert f"premigration-v{LATEST}" in pairs[0].name
+    with sqlite3.connect(pairs[0] / DB_NAME) as conn:  # the backup holds the previous schema
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST
 
 
 def test_failing_migration_refuses_and_keeps_schema(tmp_path) -> None:
     started(tmp_path).stop()
-    store = started(tmp_path, migrations=(*js.MIGRATIONS, (2, "CREATE TABLE broken (")))
+    store = started(tmp_path, migrations=(*js.MIGRATIONS, (NEXT, "CREATE TABLE broken (")))
     assert store.status()["reason"] == "migration_failed"
     with raw(tmp_path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST
 
 
 def test_migrations_must_be_contiguous(tmp_path) -> None:
     started(tmp_path).stop()
-    store = started(tmp_path, migrations=(*js.MIGRATIONS, (3, "SELECT 1;")))
+    store = started(tmp_path, migrations=(*js.MIGRATIONS, (NEXT + 1, "SELECT 1;")))
     assert store.status()["reason"] == "migration_order"
 
 

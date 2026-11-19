@@ -1,5 +1,8 @@
 """T6 trend-continuation setup (revision 2.5 §4-§7): TC1-TC6, TC6 evidence cases, vetoes.
 
+P6.2b.8: TC6 cases 1-3 (no qualifying opposing level) FAIL -- there is no structural level, so
+the setup cannot qualify (shared contract ``johanna.analysis.targets``).
+
 Hand-written feature sets (t6_fixtures); the bearish cases use an independent reflection.
 """
 
@@ -157,34 +160,47 @@ def test_tc6_case0_untrusted_is_unavailable_even_with_populated_lists(bearish) -
 
 
 @pytest.mark.parametrize("bearish", [False, True])
-def test_tc6_case1_trusted_empty_side(bearish) -> None:
+def test_tc6_case1_trusted_empty_side_fails(bearish) -> None:
     f = base_features()
     f["levels"].update(resistance=[], resistance_reason="no confirmed swing highs")
-    c = tc6(f, bearish)
+    g = reflect_features(f) if bearish else f
+    r = evaluate(g)
+    c = check(r, "TC6_clearance")
     side = "support" if bearish else "resistance"
-    assert (c["result"], c["evidence_id"]) == ("pass", f"no_{side}_levels")
-    assert "does not establish" in c["detail"]
+    assert (c["result"], c["evidence_id"]) == ("fail", f"no_{side}_levels")
+    assert c["selected_level"] is None
+    assert c["opposing_level_check"] == {
+        "valid": False,
+        "code": "no_opposing_level",
+        "distance_atr": None,
+    }
+    assert "does not establish" in c["detail"] and "TC6 fails" in c["detail"]
+    assert r["status"] == "not_qualified" and r["failed_conditions"] == ["TC6_clearance"]
     assert c["t5"]["side_reason"] == "no confirmed swing highs"
 
 
 @pytest.mark.parametrize("bearish", [False, True])
-def test_tc6_case2_only_strength_one_levels_on_that_side(bearish) -> None:
+def test_tc6_case2_only_strength_one_levels_on_that_side_fails(bearish) -> None:
     f = base_features()
     f["levels"]["resistance"] = [level(1.0856, 1.0857, 1), level(1.0870, 1.0871, 1)]
     c = tc6(f, bearish)
     side = "support" if bearish else "resistance"
-    assert (c["result"], c["evidence_id"]) == ("pass", f"no_qualifying_{side}")
+    assert (c["result"], c["evidence_id"]) == ("fail", f"no_qualifying_{side}")
+    assert c["selected_level"] is None
+    assert c["opposing_level_check"]["code"] == "no_opposing_level"
     nq = c["nearest_non_qualifying_level"]
     assert nq["strength"] == 1 and nq["distance_atr"] == pytest.approx(0.0002 / 0.0011)
 
 
 @pytest.mark.parametrize("bearish", [False, True])
-def test_tc6_case3_qualifying_levels_only_on_the_wrong_side_of_price(bearish) -> None:
+def test_tc6_case3_qualifying_levels_only_on_the_wrong_side_of_price_fails(bearish) -> None:
     f = base_features()
     f["levels"]["resistance"] = [level(1.0840, 1.0850, 2)]  # entirely below the close 1.0854
     c = tc6(f, bearish)
     expected = "no_qualifying_support_below" if bearish else "no_qualifying_resistance_above"
-    assert (c["result"], c["evidence_id"]) == ("pass", expected)
+    assert (c["result"], c["evidence_id"]) == ("fail", expected)
+    assert c["selected_level"] is None
+    assert c["opposing_level_check"]["code"] == "no_opposing_level"
 
 
 @pytest.mark.parametrize(
@@ -244,7 +260,7 @@ def test_tc6_raw_interval_versus_expanded_location_zone() -> None:
     assert c["evidence_id"] == "resistance_clearance_insufficient"
     loc, c = case(1.08530)  # inside the expanded zone, above the raw high: level not selected
     assert "at_resistance" in loc
-    assert (c["result"], c["evidence_id"]) == ("pass", "no_qualifying_resistance_above")
+    assert (c["result"], c["evidence_id"]) == ("fail", "no_qualifying_resistance_above")
 
 
 def test_tc6_ignores_broken_support_above_price() -> None:

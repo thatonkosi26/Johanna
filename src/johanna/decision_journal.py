@@ -9,8 +9,9 @@ Five dimensions are kept independent:
 - risk status comes from Phase 4 (``risk_assessment``, append-only, versioned per decision);
 - trade eligibility is derived: ``APPROVED`` only for a ``TRADE_CANDIDATE`` whose latest risk
   assessment is ``APPROVED``;
-- execution status is ``NONE`` in P5.1 (manual records and broker verification arrive in
-  P5.2 and P5.4).
+- execution status is derived from trade links (P5.2): ``MANUALLY_RECORDED`` while an ACTIVE
+  link to a non-voided manual trade exists, otherwise ``NONE``. ``BROKER_VERIFIED`` arrives with
+  reconciliation and is never reported yet.
 
 A risk failure never changes the T6 outcome. Capture failures are isolated: the capture
 methods never raise and never modify the envelope or result they are given.
@@ -52,8 +53,12 @@ COVERAGE = {
     "mode": "request_time",
     "note": (
         "Johanna records the evaluations the application requested (open pages and API "
-        "calls). This is not continuous market coverage."
+        "calls) and, while shadow evaluation is enabled, one evaluation per closed H1, H4 and "
+        "D1 candle of EURUSDc, GBPUSDc and USDJPYc (capture source scheduled_evaluation). "
+        "This is not continuous market coverage."
     ),
+    # P6.1: additive; scheduled captures are identified by this capture source.
+    "scheduled_capture_source": "scheduled_evaluation",
 }
 OUTCOMES = ("TRADE_CANDIDATE", "MARKET_CONDITION", "NO_TRADE")
 RISK_STATUSES = ("APPROVED", "REJECTED", "UNVERIFIED", "NOT_EVALUATED")
@@ -72,7 +77,13 @@ _TIMEFRAME_SECONDS = {
     "H4": 14400,
     "D1": 86400,
 }
-EXECUTION_STATUS_P51 = "NONE"
+# Capture sources (journal CHECK constraint, schema v3): request-time and P6.1 scheduled.
+CAPTURE_SOURCES = ("analysis_request", "risk_request", "scheduled_evaluation")
+EXECUTION_STATUSES = ("NONE", "MANUALLY_RECORDED", "BROKER_VERIFIED")
+_MANUALLY_RECORDED_SQL = (
+    "EXISTS (SELECT 1 FROM trade_decision_link l JOIN trade t ON t.id = l.trade_id "
+    "WHERE l.decision_id = d.id AND l.status = 'ACTIVE' AND t.voided_utc IS NULL)"
+)
 
 # The decision captured by the analysis call made inside the current risk request.
 LAST_CAPTURED_DECISION: contextvars.ContextVar[str | None] = contextvars.ContextVar(
@@ -216,6 +227,12 @@ def risk_record(result: Mapping[str, Any]) -> dict[str, Any]:
             for key in ("max_risk_per_trade", "max_daily_risk", "min_reward_risk")
         },
     }
+    versions = _m(result.get("versions"))
+    if versions:  # P6.2a M4 (results of earlier engine versions have none: evidence unchanged)
+        evidence["versions"] = {
+            key: versions.get(key)
+            for key in ("risk_engine_version", "policy_fingerprint", "cost_terms_version")
+        }
     return {
         "risk_status": status,
         "phase4_status_raw": raw,
@@ -263,7 +280,7 @@ class DecisionJournal:
 
     # -- recording ---------------------------------------------------------------------
     def record_analysis(self, envelope: Mapping[str, Any], source: str) -> str:
-        if source not in ("analysis_request", "risk_request"):
+        if source not in CAPTURE_SOURCES:
             raise ValueError("unknown capture source")
         record = analysis_record(envelope)
         now = self._clock()
@@ -405,12 +422,13 @@ class DecisionJournal:
         )
 
     # -- queries -----------------------------------------------------------------------
-    _LIST_SQL = """
+    _LIST_SQL = f"""
         SELECT d.*, o.first_seen_utc, o.last_seen_utc, o.observations,
           (SELECT r.risk_status FROM risk_assessment r WHERE r.decision_id = d.id
              ORDER BY r.rowid DESC LIMIT 1) AS latest_risk,
           (SELECT n.id FROM decision n
              WHERE n.previous_decision_id = d.id LIMIT 1) AS superseded_by,
+          {_MANUALLY_RECORDED_SQL} AS manually_recorded,
           d.rowid AS cursor_key
         FROM decision d JOIN decision_observation o ON o.decision_id = d.id
     """
@@ -436,7 +454,7 @@ class DecisionJournal:
             "market_direction": row["market_direction"],
             "risk_status": risk,
             "trade_eligibility": "APPROVED" if eligible else "NOT_APPROVED",
-            "execution_status": EXECUTION_STATUS_P51,
+            "execution_status": "MANUALLY_RECORDED" if row["manually_recorded"] else "NONE",
             "state": state,
             "evaluated_at_utc": row["evaluated_at_utc"],
             "first_seen_utc": row["first_seen_utc"],
@@ -479,8 +497,12 @@ class DecisionJournal:
                 "r.risk_status FROM risk_assessment r WHERE r.decision_id = d.id "
                 "ORDER BY r.rowid DESC LIMIT 1), '') = 'APPROVED')"
             )
-        if execution is not None and execution != EXECUTION_STATUS_P51:
-            clauses.append("0")  # P5.1: every decision's execution status is NONE
+        if execution == "MANUALLY_RECORDED":
+            clauses.append(_MANUALLY_RECORDED_SQL)
+        elif execution == "NONE":
+            clauses.append(f"NOT {_MANUALLY_RECORDED_SQL}")
+        elif execution is not None:
+            clauses.append("0")  # BROKER_VERIFIED needs reconciliation (not implemented)
         if cursor is not None:
             clauses.append("d.rowid < ?")
             params.append(cursor)

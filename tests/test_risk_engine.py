@@ -17,6 +17,7 @@ import pytest
 from fake_mt5 import READ_ONLY_CALLS
 from risk_fixtures import (
     BUY_LEVEL,
+    NO_TARGET,
     REAL_BUY,
     SELL_LEVEL,
     SELL_SYMBOLS,
@@ -394,7 +395,9 @@ def test_spread_is_included_once_through_execution_sides() -> None:
 
 
 def test_missing_technical_structure_is_rejected() -> None:
-    no_level = propose(env=envelope())  # the real R7: no qualifying resistance -> no target
+    # P6.2b.8: T6 no longer qualifies a setup without a target; an envelope whose checklist
+    # still claims TC6 "pass" without one is rejected by Phase 4's own revalidation
+    no_level = propose(env=envelope(selected_level=NO_TARGET))
     assert no_level["status"] == REJECTED and "target_structure" in check_ids(no_level)
     env = envelope(level=BUY_LEVEL)
     env["result"]["features"]["swings"]["pivots"] = [
@@ -403,13 +406,15 @@ def test_missing_technical_structure_is_rejected() -> None:
     assert "stop_structure" in check_ids(propose(env=env))
     env = envelope(level=BUY_LEVEL)
     env["result"]["features"]["latest"]["ATR14"]["usable"] = False
-    assert "atr" in check_ids(propose(env=env))
+    no_atr = propose(env=env)  # P6.2a M3: missing indicator data is unverified, not a rejection
+    assert no_atr["status"] == UNVERIFIED and "atr" in check_ids(no_atr, "unverified")
 
 
-def test_stale_quote_is_rejected() -> None:
+def test_stale_quote_is_unverified() -> None:
     fake = make_fake(tick_age_seconds=30)
-    result = propose(fake)
-    assert result["status"] == REJECTED and "quote_fresh" in check_ids(result)
+    result = propose(fake)  # P6.2a M3: the current price cannot be established
+    assert result["status"] == UNVERIFIED and "quote_fresh" in check_ids(result, "unverified")
+    assert result["rejection_reasons"] == []
 
 
 def test_no_t6_candidate_is_rejected_and_unavailable_analysis_is_unverified() -> None:
@@ -480,7 +485,8 @@ def test_methods_disagreeing_inside_the_engine_reject() -> None:
         day_start_utc=_day(),
     )
     result = risk_engine.finalise(risk_engine.plan_trade(inputs), None)
-    assert result["status"] == REJECTED and "methods_agree" in check_ids(result)
+    # P6.2a M3: disagreeing calculations mean the money at risk cannot be established
+    assert result["status"] == UNVERIFIED and "methods_agree" in check_ids(result, "unverified")
 
 
 def _day() -> datetime:
@@ -553,11 +559,12 @@ def test_calculator_results_rounded_to_currency_digits_still_reconcile() -> None
     assert propose(fake)["status"] == UNVERIFIED  # a whole cent off is not rounding
 
 
-def test_profit_calculator_disagreement_is_rejected() -> None:
+def test_profit_calculator_disagreement_is_unverified() -> None:
     fake = make_fake()
     fake.calc_hook = lambda name, args, value: value * 1.2 if name == "profit" else value
-    result = propose(fake)
-    assert result["status"] == REJECTED and "mt5_profit_calculator" in check_ids(result)
+    result = propose(fake)  # P6.2a M3: a calculation disagreement is not a rule breach
+    assert result["status"] == UNVERIFIED
+    assert "mt5_profit_calculator" in check_ids(result, "unverified")
 
 
 def test_calculators_unavailable_is_unverified() -> None:
@@ -675,26 +682,51 @@ def test_no_order_function_exists_or_is_called() -> None:
             assert name not in text, f"{name} referenced in {path.name}"
 
 
-def test_risk_modules_have_no_io_clock_or_providers() -> None:
-    engine = (SRC / "risk_engine.py").read_text(encoding="utf-8")
-    tree = ast.parse(engine)
-    imported = {
-        alias.name.split(".")[0]
+def _top_imports(text: str) -> tuple[set[str], set[str]]:
+    tree = ast.parse(text)
+    modules = {
+        alias.name if isinstance(node, ast.Import) else (node.module or "")
         for node in ast.walk(tree)
         if isinstance(node, ast.Import | ast.ImportFrom)
         for alias in (
             node.names if isinstance(node, ast.Import) else [ast.alias(node.module or "")]
         )
     }
-    assert imported <= {
-        "__future__",
-        "math",
-        "collections",
-        "dataclasses",
-        "datetime",
-        "decimal",
-        "typing",
+    return {m.split(".")[0] for m in modules}, {m for m in modules if m.startswith("johanna")}
+
+
+PURE = {
+    "__future__",
+    "hashlib",  # P6.2a M4 version fingerprints (pure; no I/O)
+    "json",  # canonical form of the fingerprinted values (pure; no I/O)
+    "math",
+    "collections",
+    "dataclasses",
+    "datetime",
+    "decimal",
+    "typing",
+}
+
+
+def test_risk_modules_have_no_io_clock_or_providers() -> None:
+    engine = (SRC / "risk_engine.py").read_text(encoding="utf-8")
+    imported, internal = _top_imports(engine)
+    assert imported <= PURE | {"johanna"}
+    # P6.2b.1 cost evidence; P6.2b.8 the shared structural-target contract and T6's default
+    # min_level_strength (both in the pure, test-enforced johanna.analysis package)
+    assert internal == {
+        "johanna.cost_evidence",
+        "johanna.analysis.targets",
+        "johanna.analysis.features",
     }
+    contract = (SRC / "analysis" / "targets.py").read_text(encoding="utf-8")
+    imported, internal = _top_imports(contract)
+    assert imported <= {"__future__", "math", "collections", "numbers", "typing"}
+    assert not internal and ".now(" not in contract and "open(" not in contract
+    evidence = (SRC / "cost_evidence.py").read_text(encoding="utf-8")
+    imported, internal = _top_imports(evidence)
+    assert imported <= PURE | {"zoneinfo", "re"} and not internal  # IANA rules; no clock
+    assert ".now(" not in evidence and "open(" not in evidence
     assert ".now(" not in engine and "open(" not in engine
     for name in ("risk_engine.py", "risk_service.py"):
         text = (SRC / name).read_text(encoding="utf-8")

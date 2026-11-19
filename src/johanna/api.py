@@ -6,15 +6,20 @@ import json
 import logging
 import re
 from collections.abc import Callable
+from datetime import date, timedelta
 from http import HTTPStatus
 from mimetypes import guess_type
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from johanna.application import JohannaApplication
+from johanna.journal_store import JournalError
 from johanna.live_market import TIMEFRAMES
 from johanna.market_analysis import ANALYSIS_TIMEFRAMES
+from johanna.notifications import LIFECYCLE
+from johanna.operations import readiness
 from johanna.persistence import MAX_WATCHLIST, SYMBOL_PATTERN
+from johanna.trade_logbook import LogbookError
 
 LOGGER = logging.getLogger("johanna.api")
 _CSP = (
@@ -37,8 +42,61 @@ _ROUTES: dict[str, frozenset[str]] = {
     "/api/account/instruments": frozenset({"GET"}),
     "/api/risk/proposal": frozenset({"GET"}),
     "/api/journal/decisions": frozenset({"GET"}),
+    # P6.1 shadow evaluation (read-only diagnostics; the only write is the enable switch)
+    "/api/shadow/status": frozenset({"GET"}),
+    "/api/shadow/scheduler": frozenset({"POST"}),
+    "/api/shadow/evaluations": frozenset({"GET"}),
+    "/api/shadow/diagnostics": frozenset({"GET"}),
+    # P6.2a shadow trade intents and funnel: GET only (HYPOTHETICAL -- NOT AN ORDER)
+    "/api/shadow/intents": frozenset({"GET"}),
+    "/api/shadow/funnel": frozenset({"GET"}),
+    # P6.2b.2 cost readiness (diagnostic, read-only; approves nothing)
+    "/api/costs/readiness": frozenset({"GET"}),
+    # P6.3 monitoring (read-only; reports the last explicit observation, triggers no MT5 read)
+    "/api/monitoring/status": frozenset({"GET"}),
+    "/api/monitoring/reconciliation": frozenset({"GET"}),
+    # P6.4 notifications (read-only list; a GET never changes a notification's state)
+    "/api/notifications": frozenset({"GET"}),
+    # P6.R operations readiness (diagnostic, read-only; enables nothing)
+    "/api/operations/readiness": frozenset({"GET"}),
+    # P6.2b.4 M-9 user-confirmed trade links: GET lists decisions (read-only); POST is the
+    # future confirmation endpoint and answers 403 not_activated (separate approval needed)
+    "/api/reconciliation/links": frozenset({"GET", "POST"}),
 }
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+# B7.2 static assets: an explicit allowlist (no path is derived from the request). The dashboard
+# is native ES modules: app.js imports these files from /assets/modules/.
+_WEB_MODULES = (
+    "hooks",
+    "state",
+    "format",
+    "status",
+    "api",
+    "components",
+    "quotes",
+    "chart",
+    "analysis",
+    "overlay",
+    "panels",
+    "account",
+    "risk",
+    "decisions",
+    "trades",
+    "shadow",
+    "control",
+    "positions",
+    "evidence",
+    "settings",
+    "overview",
+    "pages",
+    "data",
+    "polling",
+    "navigation",
+)
+_ASSETS = frozenset({"app.js", "styles.css", *(f"modules/{name}.js" for name in _WEB_MODULES)})
+# Explicit types: module scripts must be served as JavaScript (with nosniff); the platform
+# MIME registry is not trusted for this.
+_ASSET_TYPES = {".js": "text/javascript", ".css": "text/css", ".html": "text/html"}
 # GET /api/account/instruments/{symbol}: a supported pair or its broker symbol.
 _INSTRUMENT_PREFIX = "/api/account/instruments/"
 # GET /api/journal/decisions/{id}: a journal decision (ULID).
@@ -50,6 +108,37 @@ _JOURNAL_FILTERS = {
     "execution": ("NONE", "MANUALLY_RECORDED", "BROKER_VERIFIED"),
 }
 _INSTRUMENT_SYMBOL = re.compile(r"[A-Za-z0-9._-]{3,20}")
+# P5.2 manual trade logbook. No DELETE route exists for any trade record.
+_TRADES = "/api/trades"
+_ID = r"([0-9A-HJKMNP-TV-Z]{26})"
+_TRADE_ROUTES: tuple[tuple[re.Pattern[str], frozenset[str], str], ...] = (
+    (re.compile(rf"/api/trades/{_ID}"), frozenset({"GET"}), "detail"),
+    (re.compile(rf"/api/trades/{_ID}/fills"), frozenset({"POST"}), "add_fill"),
+    (re.compile(rf"/api/trades/{_ID}/fills/{_ID}/void"), frozenset({"POST"}), "void_fill"),
+    (re.compile(rf"/api/trades/{_ID}/void"), frozenset({"POST"}), "void_trade"),
+    (re.compile(rf"/api/trades/{_ID}/protection"), frozenset({"POST"}), "add_protection"),
+    (re.compile(rf"/api/trades/{_ID}/notes"), frozenset({"POST"}), "add_note"),
+    (re.compile(rf"/api/trades/{_ID}/links"), frozenset({"POST"}), "add_link"),
+    (re.compile(rf"/api/trades/{_ID}/links/{_ID}/void"), frozenset({"POST"}), "void_link"),
+)
+_SHADOW_PREFIX = "/api/shadow/evaluations/"
+_SHADOW_FILTERS = {
+    "symbol": ("EURUSD", "GBPUSD", "USDJPY"),
+    "timeframe": ("H1", "H4", "D1"),
+    "status": ("PENDING", "RUNNING", "COMPLETED", "SKIPPED", "MISSED", "FAILED"),
+}
+# GET /api/shadow/intents/{id}: one hypothetical intent (ULID). No other method exists.
+_INTENT_PREFIX = "/api/shadow/intents/"
+_INTENT_FILTERS = {
+    "symbol": ("EURUSD", "GBPUSD", "USDJPY"),
+    "timeframe": ("H1", "H4", "D1"),
+    "eligibility": ("RISK_APPROVED", "REJECTED", "UNVERIFIED"),
+}
+_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+_TRADE_FILTERS = {
+    "status": ("OPEN", "PARTIALLY_CLOSED", "CLOSED", "VOIDED"),
+    "source": ("manual", "automated"),
+}
 
 
 class BackendAPI:
@@ -71,11 +160,30 @@ class BackendAPI:
                 if method != "GET":
                     return self._method_not_allowed(start_response, {"GET"})
                 asset = path.removeprefix("/assets/")
-                if asset not in {"app.js", "styles.css"}:
+                if asset not in _ASSETS:
                     return self._response(
                         start_response, HTTPStatus.NOT_FOUND, {"error": "not_found"}
                     )
                 return self._static(start_response, asset)
+            if path == _TRADES or path.startswith(_TRADES + "/"):
+                return self._trades(environ, method, path, start_response)
+            if path.startswith(_INTENT_PREFIX):
+                if method != "GET":
+                    return self._method_not_allowed(start_response, {"GET"})
+                return self._shadow_intent(path, start_response)
+            if path.startswith(_SHADOW_PREFIX):
+                if method != "GET":
+                    return self._method_not_allowed(start_response, {"GET"})
+                return self._shadow_cycle(path, start_response)
+            if path.startswith("/api/shadow/"):
+                allowed = _ROUTES.get(path)
+                if allowed is None:
+                    return self._response(
+                        start_response, HTTPStatus.NOT_FOUND, {"error": "not_found"}
+                    )
+                if method not in allowed:
+                    return self._method_not_allowed(start_response, allowed)
+                return self._shadow(environ, path, start_response)
             if path.startswith(_DECISION_PREFIX):
                 if method != "GET":
                     return self._method_not_allowed(start_response, {"GET"})
@@ -111,6 +219,39 @@ class BackendAPI:
                 return self._market_analysis(environ, start_response)
             if path == "/api/journal/decisions":
                 return self._journal_decisions(environ, start_response)
+            if path == "/api/monitoring/status":
+                return self._response(
+                    start_response, HTTPStatus.OK, self.application.monitoring.status()
+                )
+            if path == "/api/monitoring/reconciliation":
+                unavailable = self._journal_unavailable(start_response)
+                if unavailable is not None:
+                    return unavailable
+                return self._response(
+                    start_response, HTTPStatus.OK, self.application.monitoring.latest()
+                )
+            if path == "/api/operations/readiness":
+                return self._response(start_response, HTTPStatus.OK, readiness(self.application))
+            if path == "/api/notifications":
+                return self._notifications(environ, start_response)
+            if path == "/api/reconciliation/links":
+                if method == "POST":  # inactive: no body is read, nothing is written
+                    return self._response(
+                        start_response,
+                        HTTPStatus.FORBIDDEN,
+                        {
+                            "error": "not_activated",
+                            "message": "user-confirmed trade linking is not activated "
+                            "(separate approval required)",
+                        },
+                    )
+                payload = self.application.trade_links.links()
+                payload["service"] = self.application.trade_links.status()
+                return self._response(start_response, HTTPStatus.OK, payload)
+            if path == "/api/costs/readiness":
+                return self._response(
+                    start_response, HTTPStatus.OK, self.application.cost_readiness()
+                )
             if path == "/api/risk/proposal":
                 return self._risk_proposal(environ, start_response)
             if path == "/api/account/summary":
@@ -305,6 +446,258 @@ class BackendAPI:
         payload["journal"] = self._journal_status()
         return self._response(start_response, HTTPStatus.OK, payload)
 
+    # -- P5.2 manual trade logbook ------------------------------------------------------
+    def _trades(
+        self, environ: dict, method: str, path: str, start_response: Callable
+    ) -> list[bytes]:
+        if path == _TRADES:
+            route, allowed, ids = "collection", frozenset({"GET", "POST"}), ()
+        else:
+            for pattern, allowed, route in _TRADE_ROUTES:
+                match = pattern.fullmatch(path)
+                if match:
+                    ids = match.groups()
+                    break
+            else:
+                return self._response(start_response, HTTPStatus.NOT_FOUND, {"error": "not_found"})
+        if method not in allowed:
+            return self._method_not_allowed(start_response, allowed)
+        logbook = self.application.trades
+        try:
+            if method == "GET":
+                unavailable = self._journal_unavailable(start_response)
+                if unavailable is not None:
+                    return unavailable
+                if route == "collection":
+                    return self._trade_list(environ, start_response)
+                payload = logbook.get(ids[0])
+                if payload is None:
+                    return self._response(
+                        start_response, HTTPStatus.NOT_FOUND, {"error": "not_found"}
+                    )
+                payload["journal"] = self.application.journal_store.status()
+                return self._response(start_response, HTTPStatus.OK, payload)
+            body = self._json_body(environ)
+            if isinstance(body, tuple):
+                return self._response(start_response, *body)
+            if route == "collection":
+                status, payload = logbook.create_trade(body)
+            else:
+                status, payload = getattr(logbook, route)(*ids, body)
+            return self._response(start_response, HTTPStatus(status), payload)
+        except LogbookError as exc:
+            if exc.status == HTTPStatus.SERVICE_UNAVAILABLE:
+                return self._journal_unavailable(start_response) or self._response(
+                    start_response,
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {"error": "journal_unavailable", "reason": exc.message},
+                )
+            return self._response(
+                start_response,
+                HTTPStatus(exc.status),
+                {"error": exc.code, "message": exc.message},
+            )
+
+    @staticmethod
+    def _json_body(environ: dict) -> object:
+        """A JSON object body, or ``(status, payload)`` describing why it was refused."""
+        content_type = environ.get("CONTENT_TYPE", "").split(";", 1)[0].strip().lower()
+        if content_type != "application/json":
+            return (
+                HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                {"error": "unsupported_media_type", "message": "Content-Type must be JSON"},
+            )
+        try:
+            length = int(environ.get("CONTENT_LENGTH") or 0)
+            if length < 1 or length > 16_384:
+                raise ValueError("request body must be between 1 and 16384 bytes")
+            payload = json.loads(environ["wsgi.input"].read(length))
+            if not isinstance(payload, dict):
+                raise ValueError("request body must be a JSON object")
+        except (ValueError, KeyError, UnicodeDecodeError) as exc:
+            return HTTPStatus.BAD_REQUEST, {"error": "invalid_body", "message": str(exc)}
+        return payload
+
+    def _trade_list(self, environ: dict, start_response: Callable) -> list[bytes]:
+        query = parse_qs(environ.get("QUERY_STRING", ""))
+        filters: dict[str, object] = {}
+        try:
+            for name in ("status", "source"):
+                value = query.get(name, [""])[0].strip()
+                if value:
+                    value = value.lower() if name == "source" else value.upper()
+                    if value not in _TRADE_FILTERS[name]:
+                        raise ValueError(f"invalid {name}")
+                    filters[name] = value
+            symbol = query.get("symbol", [""])[0].strip()
+            if symbol:
+                filters["symbol"] = symbol
+            limit = int(query.get("limit", ["50"])[0])
+            cursor_text = query.get("cursor", [""])[0]
+            cursor = int(cursor_text) if cursor_text else None
+            if not 1 <= limit <= 100 or (cursor is not None and cursor < 1):
+                raise ValueError("limit 1-100; cursor from a page")
+            payload = self.application.trades.list(
+                **filters, cursor=cursor, limit=limit, unrealised=True
+            )
+        except LogbookError as exc:
+            return self._response(
+                start_response, HTTPStatus.BAD_REQUEST, {"error": exc.code, "message": exc.message}
+            )
+        except ValueError as exc:
+            return self._response(
+                start_response,
+                HTTPStatus.BAD_REQUEST,
+                {"error": "invalid_trade_request", "message": str(exc)},
+            )
+        payload["journal"] = self.application.journal_store.status()
+        return self._response(start_response, HTTPStatus.OK, payload)
+
+    # -- P6.1 shadow evaluation --------------------------------------------------------
+    def _shadow(self, environ: dict, path: str, start_response: Callable) -> list[bytes]:
+        service = self.application.shadow
+        if path == "/api/shadow/status":
+            payload = service.status()
+            payload["journal"] = self.application.journal_store.status()
+            return self._response(start_response, HTTPStatus.OK, payload)
+        unavailable = self._journal_unavailable(start_response)
+        if unavailable is not None:
+            return unavailable
+        if path == "/api/shadow/scheduler":
+            body = self._json_body(environ)
+            if isinstance(body, tuple):
+                return self._response(start_response, *body)
+            if set(body) != {"enabled"} or not isinstance(body["enabled"], bool):
+                return self._response(
+                    start_response,
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": "invalid_body", "message": 'body must be {"enabled": true|false}'},
+                )
+            try:
+                payload = service.set_enabled(body["enabled"])
+            except JournalError:
+                return self._journal_unavailable(start_response) or self._response(
+                    start_response,
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {"error": "journal_unavailable"},
+                )
+            return self._response(start_response, HTTPStatus.OK, payload)
+        if path == "/api/shadow/diagnostics":
+            return self._response(start_response, HTTPStatus.OK, service.diagnostics())
+        if path in ("/api/shadow/intents", "/api/shadow/funnel"):
+            return self._shadow_intents(environ, path, start_response)
+        query = parse_qs(environ.get("QUERY_STRING", ""))
+        filters: dict[str, object] = {}
+        try:
+            for name, allowed in _SHADOW_FILTERS.items():
+                value = query.get(name, [""])[0].strip().upper()
+                if value:
+                    if name == "symbol" and value.endswith("C"):
+                        value = value[:-1]  # broker form EURUSDc
+                    if value not in allowed:
+                        raise ValueError(f"invalid {name}")
+                    filters[name] = value
+            limit = int(query.get("limit", ["50"])[0])
+            cursor_text = query.get("cursor", [""])[0]
+            cursor = int(cursor_text) if cursor_text else None
+            if not 1 <= limit <= 100 or (cursor is not None and cursor < 1):
+                raise ValueError("limit 1-100; cursor from a page")
+        except ValueError as exc:
+            return self._response(
+                start_response,
+                HTTPStatus.BAD_REQUEST,
+                {"error": "invalid_shadow_request", "message": str(exc)},
+            )
+        payload = service.cycles(**filters, cursor=cursor, limit=limit)
+        return self._response(start_response, HTTPStatus.OK, payload)
+
+    def _shadow_cycle(self, path: str, start_response: Callable) -> list[bytes]:
+        cycle_id = path.removeprefix(_SHADOW_PREFIX)
+        if not _ULID.fullmatch(cycle_id):
+            return self._response(start_response, HTTPStatus.NOT_FOUND, {"error": "not_found"})
+        unavailable = self._journal_unavailable(start_response)
+        if unavailable is not None:
+            return unavailable
+        payload = self.application.shadow.cycle(cycle_id)
+        if payload is None:
+            return self._response(start_response, HTTPStatus.NOT_FOUND, {"error": "not_found"})
+        return self._response(start_response, HTTPStatus.OK, payload)
+
+    def _shadow_intents(self, environ: dict, path: str, start_response: Callable) -> list[bytes]:
+        """P6.2a: list of hypothetical intents or the opportunity funnel. Reads the journal
+        only; every filter is validated against a fixed list or format."""
+        query = parse_qs(environ.get("QUERY_STRING", ""))
+        try:
+            start, end = _date_range(query)
+            if path == "/api/shadow/funnel":
+                if set(query) - {"from", "to"}:
+                    raise ValueError("funnel filters: from, to (YYYY-MM-DD)")
+                payload = self.application.shadow.funnel(start, end)
+                return self._response(start_response, HTTPStatus.OK, payload)
+            unknown = set(query) - {*_INTENT_FILTERS, "from", "to", "limit", "cursor"}
+            if unknown:
+                raise ValueError(f"unknown filter {sorted(unknown)[0]}")
+            filters: dict[str, object] = {}
+            for name, allowed in _INTENT_FILTERS.items():
+                value = query.get(name, [""])[0].strip().upper()
+                if value:
+                    if name == "symbol" and value.endswith("C"):
+                        value = value[:-1]  # broker form EURUSDc
+                    if value not in allowed:
+                        raise ValueError(f"invalid {name}")
+                    filters[name] = value
+            limit = int(query.get("limit", ["50"])[0])
+            cursor_text = query.get("cursor", [""])[0]
+            cursor = int(cursor_text) if cursor_text else None
+            if not 1 <= limit <= 100 or (cursor is not None and cursor < 1):
+                raise ValueError("limit 1-100; cursor from a page")
+        except ValueError as exc:
+            return self._response(
+                start_response,
+                HTTPStatus.BAD_REQUEST,
+                {"error": "invalid_shadow_request", "message": str(exc)},
+            )
+        payload = self.application.shadow.intents(
+            **filters, start=start, end=end, cursor=cursor, limit=limit
+        )
+        return self._response(start_response, HTTPStatus.OK, payload)
+
+    def _shadow_intent(self, path: str, start_response: Callable) -> list[bytes]:
+        intent_id = path.removeprefix(_INTENT_PREFIX)
+        if not _ULID.fullmatch(intent_id):
+            return self._response(start_response, HTTPStatus.NOT_FOUND, {"error": "not_found"})
+        unavailable = self._journal_unavailable(start_response)
+        if unavailable is not None:
+            return unavailable
+        payload = self.application.shadow.intent(intent_id)
+        if payload is None:
+            return self._response(start_response, HTTPStatus.NOT_FOUND, {"error": "not_found"})
+        return self._response(start_response, HTTPStatus.OK, payload)
+
+    def _notifications(self, environ: dict, start_response: Callable) -> list[bytes]:
+        unavailable = self._journal_unavailable(start_response)
+        if unavailable is not None:
+            return unavailable
+        query = parse_qs(environ.get("QUERY_STRING", ""))
+        try:
+            if set(query) - {"state", "limit"}:
+                raise ValueError("filters: state, limit")
+            state = query.get("state", [""])[0].strip().lower() or None
+            if state is not None and state not in LIFECYCLE:
+                raise ValueError(f"state must be one of {', '.join(LIFECYCLE)}")
+            limit = int(query.get("limit", ["50"])[0])
+            if not 1 <= limit <= 100:
+                raise ValueError("limit 1-100")
+            payload = self.application.notifications.list(state=state, limit=limit)
+        except ValueError as exc:
+            return self._response(
+                start_response,
+                HTTPStatus.BAD_REQUEST,
+                {"error": "invalid_notification_request", "message": str(exc)},
+            )
+        payload["service"] = self.application.notifications.status()
+        return self._response(start_response, HTTPStatus.OK, payload)
+
     def _journal_status(self) -> dict[str, object]:
         return {**self.application.journal_store.status(), **self.application.decisions.status()}
 
@@ -400,7 +793,11 @@ class BackendAPI:
     def _static(start_response: Callable, filename: str) -> list[bytes]:
         asset_path = Path(__file__).with_name("web") / filename
         body = asset_path.read_bytes()
-        content_type = guess_type(filename)[0] or "application/octet-stream"
+        content_type = (
+            _ASSET_TYPES.get(Path(filename).suffix)
+            or guess_type(filename)[0]
+            or "application/octet-stream"
+        )
         start_response(
             "200 OK",
             [
@@ -435,6 +832,29 @@ class BackendAPI:
             ],
         )
         return [body]
+
+
+def _date_range(query: dict) -> tuple[str | None, str | None]:
+    """``from`` / ``to`` as UTC calendar dates (YYYY-MM-DD, both inclusive) -> candle-close
+    bounds [start, end) in the journal's ``window_close_utc`` format."""
+    bounds: list[str | None] = []
+    days = []
+    for name in ("from", "to"):
+        text = query.get(name, [""])[0].strip()
+        if not text:
+            bounds.append(None)
+            days.append(None)
+            continue
+        if not _DATE.fullmatch(text):
+            raise ValueError(f"{name} must be a date YYYY-MM-DD")
+        day = date.fromisoformat(text)
+        days.append(day)
+        bounds.append(
+            (day if name == "from" else day + timedelta(days=1)).isoformat() + "T00:00:00Z"
+        )
+    if days[0] is not None and days[1] is not None and days[0] > days[1]:
+        raise ValueError("from must not be after to")
+    return bounds[0], bounds[1]
 
 
 def _hostname(host_header: str) -> str:

@@ -139,7 +139,7 @@ def test_journal_failures_never_stop_analysis_or_risk(tmp_path, mode) -> None:
             (_ for _ in ()).throw(RuntimeError("x")) if step == "after_meta" else None
         )
     if mode == "failed_migration":
-        app.journal_store._migrations = (*js.MIGRATIONS, (2, "CREATE TABLE broken ("))
+        app.journal_store._migrations = (*js.MIGRATIONS, (NEXT, "CREATE TABLE broken ("))
     app.start()  # never raises because of the journal
     try:
         env = envelope(level=BUY_LEVEL)
@@ -157,7 +157,7 @@ def test_journal_failures_never_stop_analysis_or_risk(tmp_path, mode) -> None:
         assert journal_status["state"] == state
         assert journal_status["hmac_available"] is False
         assert journal_status["hmac_prerequisite"] == "refused"
-        assert journal_status["monitoring_and_reconciliation"] == "not_implemented"
+        assert journal_status["monitoring_and_reconciliation"] == "reported_by_monitoring_service"
         status, payload, _ = _call(api, "/api/journal/decisions")
         if state == "ready":  # decisions still recorded; HMAC-dependent features refused
             assert journal_status["key_status"] == key_status
@@ -172,7 +172,10 @@ def test_journal_failures_never_stop_analysis_or_risk(tmp_path, mode) -> None:
 
 
 # ====================================================================== 4. migration/backup
-V2_BROKEN = (2, "CREATE TABLE broken (")
+# Version-agnostic: a migration from the shipped latest schema to the next one.
+LATEST = js.MIGRATIONS[-1][0]
+NEXT = LATEST + 1
+V2_BROKEN = (NEXT, "CREATE TABLE broken (")
 
 
 def _decision_count(tmp_path) -> int:
@@ -187,12 +190,14 @@ def test_backup_completes_and_validates_before_a_migration_that_fails(tmp_path) 
     store = started(tmp_path, migrations=(*js.MIGRATIONS, V2_BROKEN))
     assert store.status()["reason"] == "migration_failed"
     pairs = [p for p in tmp_path.iterdir() if p.name.startswith("trading_journal.backup-")]
-    assert len(pairs) == 1 and "premigration-v1" in pairs[0].name and validate_pair(pairs[0])
+    assert (
+        len(pairs) == 1 and f"premigration-v{LATEST}" in pairs[0].name and validate_pair(pairs[0])
+    )
     with sqlite3.connect(pairs[0] / DB_NAME) as conn:
         assert conn.execute("SELECT count(*) FROM decision").fetchone()[0] == 1
-    # the original database is intact and still at v1
+    # the original database is intact and still at the previous version
     with raw(tmp_path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST
         assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     assert _decision_count(tmp_path) == 1
 
@@ -203,7 +208,7 @@ def test_backup_failure_blocks_the_migration(tmp_path) -> None:
         tmp_path,
         acl=Acl(),
         acl_check=Acl(),
-        migrations=(*js.MIGRATIONS, (2, "CREATE TABLE ok (id INTEGER);")),
+        migrations=(*js.MIGRATIONS, (NEXT, "CREATE TABLE ok (id INTEGER);")),
         fault=lambda step: (
             (_ for _ in ()).throw(RuntimeError("x")) if step == "backup_after_snapshot" else None
         ),
@@ -211,7 +216,7 @@ def test_backup_failure_blocks_the_migration(tmp_path) -> None:
     store.start()
     assert store.status()["state"] == "refused" and store.status()["reason"] == "backup_failed"
     with raw(tmp_path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST
         assert conn.execute("SELECT name FROM sqlite_master WHERE name='ok'").fetchone() is None
     assert [p.name for p in tmp_path.iterdir() if p.is_dir()] == []  # nothing published or left
 

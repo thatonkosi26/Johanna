@@ -380,8 +380,8 @@ def test_disabled_overlay_runs_no_model_or_drawing(page, served) -> None:
     _ready(page, url)
     chart = _chart(page)
     page.evaluate(
-        "window.__models = 0; const realModel = overlayModel;"
-        " overlayModel = (...args) => { window.__models += 1; return realModel(...args); };"
+        # B7.2: overlayModel is a module function; its own call counter replaces the wrapper.
+        "window.__models0 = state.overlay.modelCalls;"
     )
     stub.envelope = with_payload(rebased("R7", chart), chart)
     before = page.evaluate("livePollingState().analysis.requests")
@@ -391,7 +391,7 @@ def test_disabled_overlay_runs_no_model_or_drawing(page, served) -> None:
         " && !livePollingState().analysis.inFlight && !livePollingState().bars.inFlight"
     )
     page.wait_for("state.analysis !== null")
-    assert page.evaluate("window.__models") == 0
+    assert page.evaluate("state.overlay.modelCalls - window.__models0") == 0
     assert page.evaluate("overlayState().draws") == 0
 
 

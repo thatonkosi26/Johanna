@@ -34,7 +34,7 @@ def test_list_and_detail(tmp_path) -> None:
         assert body["coverage"]["mode"] == "request_time"
         assert body["journal"]["state"] == "ready" and body["journal"]["hmac_available"] is True
         assert body["journal"]["hmac_prerequisite"] == "verified"
-        assert body["journal"]["monitoring_and_reconciliation"] == "not_implemented"
+        assert body["journal"]["monitoring_and_reconciliation"] == "reported_by_monitoring_service"
         assert "available" not in json.dumps(
             {k: v for k, v in body["journal"].items() if k == "monitoring_and_reconciliation"}
         )
@@ -195,7 +195,7 @@ def test_decisions_page_shows_separate_dimensions(browser, tmp_path) -> None:
         assert (
             browser.evaluate("document.querySelector('.page-heading h1').innerText") == "Decisions"
         )
-        assert "Decisions" in browser.text('#primary-nav [data-page="signals"]')
+        assert "Decision history" in browser.text('#primary-nav [data-page="signals"]')  # B7.2
         row = "#decisions-table tbody tr"
         cell = lambda col: browser.evaluate(  # noqa: E731
             f"document.querySelector('{row} [data-col=\"{col}\"]').textContent.trim()"
@@ -208,12 +208,18 @@ def test_decisions_page_shows_separate_dimensions(browser, tmp_path) -> None:
         assert "not continuous market coverage" in browser.text("#decisions-coverage")
         journal_line = browser.text("#decisions-journal")
         assert "HMAC prerequisite verified" in journal_line
-        assert "monitoring and reconciliation not implemented" in journal_line
+        # B7.2: the stale "not implemented" label is gone (state lives in the Control Centre)
+        assert "not implemented" not in journal_line
         assert "available" not in journal_line
-        count = browser.evaluate(
-            "document.querySelectorAll('main button, main input, main select, main form').length"
+        # P5.2 (authorised): the only controls are the per-row "Link to trade" actions, which
+        # link a decision to an already-recorded trade. No execution controls, no forms.
+        controls = browser.evaluate(
+            "[...document.querySelectorAll('main button, main input, main select, main form')]"
+            ".map((e) => e.dataset.linkDecision ? 'link' : e.tagName)"
         )
-        assert count == 0
+        assert controls == ["link"] * browser.evaluate(
+            "document.querySelectorAll('#decisions-table tbody tr').length"
+        )
         assert browser.evaluate("livePollingState().decisions.scheduled") is True
         browser.click('#primary-nav [data-page="markets"]')
         browser.wait_for("!livePollingState().decisions.inFlight")

@@ -52,7 +52,7 @@ __all__ = [
     "required_candles",
 ]
 
-DECISION_VERSION = 1
+DECISION_VERSION = 2  # 2 since P6.2b.8: TC6 fails without a structural target
 NO_TRADE, MARKET_CONDITION, TRADE_CANDIDATE = "NO_TRADE", "MARKET_CONDITION", "TRADE_CANDIDATE"
 _CONTENT_BINDING = {"constructed": "by_construction", "supplied": "not_verified"}
 _STATUS_FOR_VERDICT = {
@@ -610,8 +610,9 @@ def _case_limitations(output: dict, market: dict, opportunity: dict) -> None:
             and check["evidence_id"].startswith("no_")
         ):
             lims.append(
-                "TC6 passed because no qualifying opposing level was identified in the analysed "
-                "history; this does not establish that none exists in the market"
+                "TC6 failed because no qualifying opposing level was identified in the analysed "
+                "history (no structural level); this does not establish that none exists in the "
+                "market"
             )
     if market["dimensions"]["swing_structure"]["state"] != "unavailable":
         lims.append("swing pivots have no age limit; their timestamps are shown in the output")

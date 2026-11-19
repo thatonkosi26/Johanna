@@ -122,11 +122,27 @@ class MarketAnalysisService:
             raise MarketAnalysisError(f"market analysis for {symbol} {timeframe} did not complete")
         return self._envelope(record.computation, joined=not leader)
 
+    def analyse_background(self, symbol: str, timeframe: str) -> tuple[dict[str, Any], dict]:
+        """P6.1 shadow evaluation: the same computation as ``analyse`` on a new snapshot, but
+        outside the single-flight registry -- it neither joins a dashboard computation nor lets
+        one join it, so a deferred background read can never fail a dashboard request. Returns
+        the envelope and the T2 snapshot it analysed (for closure evidence). Errors propagate
+        unchanged (``MarketUnavailable`` included); nothing is cached."""
+        if timeframe not in ANALYSIS_TIMEFRAMES:
+            raise ValueError(f"analysis supports {', '.join(ANALYSIS_TIMEFRAMES)}")
+        observed: dict[str, Any] = {}
+        computation = self._compute(symbol, timeframe, observed)
+        return self._envelope(computation, joined=False), observed["snapshot"]
+
     # ------------------------------------------------------------------ internals
-    def _compute(self, symbol: str, timeframe: str) -> dict[str, Any]:
+    def _compute(
+        self, symbol: str, timeframe: str, observed: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         count = self.requested_count
         started = self._monotonic()
         snapshot = self._live.snapshot(symbol, timeframe, count)
+        if observed is not None:
+            observed["snapshot"] = snapshot
         fetched = self._monotonic()
         analysed_at = self._clock()  # read after the snapshot returned
         # The capture hands over the T5 object of this same (single) evaluation for the overlay.

@@ -41,18 +41,20 @@ pytestmark = [
     pytest.mark.browser,
     pytest.mark.skipif(BROWSER is None, reason="no Chromium-family browser installed"),
 ]
+# B7.2 navigation: eight sections; every page keeps its id and appears in #primary-nav.
 NAV = {
     "overview": "Overview",
     "charts": "Charts",
-    "markets": "Markets",
+    "markets": "Watchlist",
     "calendar": "Economic Calendar",
-    "news": "News",
-    "signals": "Decisions",
-    "rules": "Trading Rules",
     "risk": "Risk Management",
-    "positions": "Positions",
-    "history": "Trade History",
-    "analytics": "Analytics",
+    "signals": "Decisions",
+    "analytics": "Shadow Research",
+    "history": "Trade Journal",
+    "positions": "Positions & Reconciliation",
+    "account": "Account & Broker",
+    "evidence": "Evidence & Costs",
+    "control": "System Control Centre",
     "settings": "Settings",
 }
 
@@ -226,6 +228,8 @@ def test_overview_shows_live_mt5_quotes_and_candles(page, tmp_path) -> None:
         assert "UNAVAILABLE" in _watch_row(page, "GBPUSD")  # not offered by the fake broker
         info = page.evaluate(_text("#market-info"))
         assert "Exness-MT5Trial9" in info and "Verified against a live tick" in info
+        # the readiness notices are part of the page: read the text only once they are shown
+        page.wait_for("document.querySelector('[data-notice=\"execution_disabled\"]') !== null")
         overview = page.evaluate(_text("main"))
         assert "Synthetic Smoke Event" in overview
         assert "Analysis & setups" in overview

@@ -7,7 +7,15 @@ import time
 import pytest
 from browser_harness import Browser, find_browser
 from fake_mt5 import READ_ONLY_CALLS
-from risk_fixtures import BUY_LEVEL, VERIFIED_COSTS, StubAnalysis, envelope, make_fake
+from risk_fixtures import (
+    BUY_LEVEL,
+    NO_TARGET,
+    VERIFIED_COSTS,
+    StubAnalysis,
+    envelope,
+    make_fake,
+    negative_swap,
+)
 from test_browser_smoke import _load, _serve
 
 BROWSER = find_browser()
@@ -88,7 +96,8 @@ def test_approved_proposal_renders_as_proposed_parameters(page, tmp_path) -> Non
 
 
 def test_rejected_proposal_shows_reasons(page, tmp_path) -> None:
-    served, url, _ = _serve_risk(tmp_path, make_fake(), envelope())  # no TC6 level: no target
+    # no TC6 level although the checklist claims "pass": Phase 4 rejects independently
+    served, url, _ = _serve_risk(tmp_path, make_fake(), envelope(selected_level=NO_TARGET))
     try:
         _open(page, url)
         assert "rejected" in page.text("#risk-heading-badge").lower()
@@ -171,7 +180,10 @@ def test_unsupported_timeframe_requests_nothing(page, tmp_path) -> None:
 
 
 def test_unverified_net_costs_are_prominent_and_never_approved(page, tmp_path) -> None:
-    served, url, _ = _serve_risk(tmp_path, make_fake(), envelope(level=BUY_LEVEL))  # production
+    # production terms; the long swap is a cost (explicit since Phase 1: the fake's default
+    # swap is zero), so swap is unverified without a holding period, as this test expects
+    fake = negative_swap(make_fake())
+    served, url, _ = _serve_risk(tmp_path, fake, envelope(level=BUY_LEVEL))
     try:
         _open(page, url)
         assert "unverified" in page.text("#risk-heading-badge").lower()

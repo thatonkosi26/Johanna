@@ -11,8 +11,11 @@ from typing import Any
 
 from johanna.account_intelligence import AccountIntelligenceService
 from johanna.adapters.mt5 import ServerClock
+from johanna.backups import BackupManager, BackupPolicy
+from johanna.broker_monitoring import BrokerMonitoringService
 from johanna.collectors import CollectorConfig, run_configured_source
 from johanna.config import AppConfig, ConfigurationError
+from johanna.cost_policy import CostPolicyRegistry, cost_readiness, live_broker_terms
 from johanna.data_services import CalendarService, MarketDataService, iso_utc
 from johanna.decision_journal import LAST_CAPTURED_DECISION, CapturingAnalysis, DecisionJournal
 from johanna.domain.execution import DisabledExecutionService
@@ -21,13 +24,19 @@ from johanna.domain.news import UnimplementedNewsService
 from johanna.domain.risk import UnimplementedRiskService
 from johanna.domain.rules import UnimplementedRulesService
 from johanna.domain.signals import UnimplementedSignalService
+from johanna.evidence import EvidenceRegistry
 from johanna.instance_lock import InstanceLock
 from johanna.journal_store import JournalStore
 from johanna.live_market import LiveMarketService
 from johanna.market_analysis import MarketAnalysisService
+from johanna.notifications import DashboardInboxAdapter, NotificationCenter
+from johanna.operations import ReadinessEvidence
 from johanna.persistence import PREFERENCE_DEFAULTS, ApplicationStore
 from johanna.risk_service import RiskService
 from johanna.services import ServiceManager
+from johanna.shadow_evaluation import ShadowEvaluationService
+from johanna.trade_links import TradeLinkService
+from johanna.trade_logbook import TradeLogbook
 
 LOGGER = logging.getLogger("johanna.application")
 
@@ -106,12 +115,47 @@ class JohannaApplication:
         # Phase 5 (P5.1): separate fail-closed trading journal; request-time decision capture.
         self.journal_store = JournalStore(data_dir, clock=live_clock)
         self.decisions = DecisionJournal(self.journal_store, clock=live_clock)
+        # P5.2: manual records of trades the user executed in MT5 (never places orders).
+        self.trades = TradeLogbook(self.journal_store, self.account, clock=live_clock)
         self.risk = RiskService(
             CapturingAnalysis(self.market_analysis, self.decisions),
             self.account,
             self.live_market,
             clock=live_clock,
         )
+        # P6.1: background shadow evaluation (read-only; disabled until the user enables it).
+        # Kept outside the ServiceManager: started after it and stopped before it.
+        self.shadow = ShadowEvaluationService(
+            self.journal_store,
+            self.decisions,
+            self.market_analysis,
+            self.risk,
+            self.live_market.server_clock,
+            clock=live_clock,
+        )
+        # P6.2b.2: cost-evidence registry (staged schema v5; reports not_installed on v4). It
+        # is diagnostic only: the risk service keeps the production COST_TERMS (empty).
+        self._live_clock = live_clock or _utc_now
+        self.cost_registry = CostPolicyRegistry(self.journal_store, clock=self._live_clock)
+        # P6.3: read-only broker monitoring/reconciliation infrastructure. Never started here:
+        # no thread, no schedule; observe() is explicit (future separately approved activation).
+        self.monitoring = BrokerMonitoringService(
+            self.journal_store, self.live_market, clock=self._live_clock
+        )
+        # P6.4: local notification infrastructure. Local dashboard inbox only (no external
+        # delivery) and nothing calls notify() automatically in this phase.
+        self.notifications = NotificationCenter(
+            self.journal_store, (DashboardInboxAdapter(),), clock=self._live_clock
+        )
+        # P6.2b.4 (inactive foundations; schema v6 tables, registered in P6.2b.5, report
+        # not_installed on a journal still at v5):
+        # user-confirmed trade links (M-9; the confirmation endpoint answers not_activated),
+        # evidence records (C-12; nothing recorded automatically), explicit-only journal
+        # backups (M-7; policy disabled, no schedule) and reusable readiness evidence (M-8).
+        self.trade_links = TradeLinkService(self.journal_store, clock=self._live_clock)
+        self.evidence = EvidenceRegistry(self.journal_store, clock=self._live_clock)
+        self.backups = BackupManager(self.journal_store, BackupPolicy(enabled=False))
+        self.readiness_evidence = ReadinessEvidence()
         if services is not None:
             configured_services = [self.store, *services.services]
         else:
@@ -146,6 +190,7 @@ class JohannaApplication:
                     self.cached_data = self.store.get_all_cached_data()
                     self.runtime_state = self.store.get_runtime_state()
                     self._started = True
+                    self.shadow.start()  # never raises; resumes only if enabled
                 except Exception:
                     self.services.stop()
                     raise
@@ -158,7 +203,10 @@ class JohannaApplication:
             if not self._started:
                 return
             try:
-                self.services.stop()
+                try:
+                    self.shadow.stop()
+                finally:
+                    self.services.stop()
             finally:
                 self._started = False
                 self.instance_lock.release()
@@ -235,6 +283,20 @@ class JohannaApplication:
         finally:
             LAST_CAPTURED_DECISION.reset(token)
         return result
+
+    def cost_readiness(self) -> dict[str, Any]:
+        """P6.2b.2: why costs are (un)verified -- read-only (Phase 3 instrument read through
+        the shared cache; no journal write, no approval)."""
+        payload = self.account.instruments()
+        live = live_broker_terms(payload) if payload.get("instruments") else {}
+        registry = (
+            self.cost_registry.history(live)
+            if self.journal_store.ready
+            else {"status": "journal_unavailable", "records": []}
+        )
+        report = cost_readiness(self.risk.costs, self._live_clock(), payload, registry=registry)
+        report["instrument_data_status"] = payload.get("status")
+        return report
 
     def health(self) -> tuple[bool, dict[str, object]]:
         """Healthy only when running, persistence is up and no service is in error."""

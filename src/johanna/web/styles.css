@@ -291,3 +291,99 @@ h1 { font-size: 22px; line-height: 1.2; letter-spacing: -.025em; margin: 6px 0 0
 .risk-list.rejections strong { color: var(--red); }
 .risk-list.unverified-list strong { color: var(--amber); }
 #risk-validations .info-row, #risk-proposal .info-row { grid-template-columns: 120px minmax(0, 1fr); padding: 4px 0; }
+/* P5.2 Trade History: manual records only (no execution controls). */
+#trades-content .table-scroll { overflow-x: auto; }
+.button.small { min-height: 24px; padding: 0 8px; font-size: 10px; }
+.trade-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px 12px; padding: 12px 13px; border-top: 1px solid var(--line-soft); }
+.trade-field { display: flex; flex-direction: column; gap: 4px; font-size: 9px; color: var(--dim); letter-spacing: .04em; text-transform: uppercase; }
+.trade-field em { font-style: normal; text-transform: none; color: var(--dim); opacity: .8; }
+.trade-field .text-input, .trade-field .select { width: 100%; min-width: 0; }
+.trade-field.wide { grid-column: span 2; }
+.trade-actions { display: flex; gap: 8px; align-items: end; padding: 0 13px 12px; }
+.trade-form .trade-actions { padding: 0; }
+.trade-inline { display: flex; gap: 6px; align-items: center; }
+.trade-inline .text-input { height: 24px; width: 140px; }
+.trades-table tr.selected td { background: var(--panel-raised); }
+.data-table tr.voided td { color: var(--dim); text-decoration: line-through; }
+.data-table tr.voided td:last-child, .data-table tr.voided td:nth-last-child(2) { text-decoration: none; }
+#trade-accounting .info-row { grid-template-columns: 220px minmax(0, 1fr); padding: 4px 0; }
+.trade-note { white-space: pre-wrap; font-weight: 400; }
+@media (max-width: 760px) { .trade-field.wide { grid-column: auto; } #trade-accounting .info-row { grid-template-columns: minmax(0, 1fr); } }
+/* P6.1 shadow evaluation (Analytics page): read-only diagnostics. */
+.shadow-banner { color: var(--amber); border-color: #6b5a2f; font-weight: 600; letter-spacing: .04em; }
+.shadow-scroll { overflow-x: auto; }
+/* P6.2a shadow trade intents (HYPOTHETICAL — NOT AN ORDER): read-only table and detail view. */
+#shadow-intents tbody tr { cursor: pointer; }
+#shadow-intents tbody tr:focus-visible td { outline: 1px solid var(--accent); outline-offset: -1px; }
+#shadow-intents tr.selected td { background: var(--panel-raised); }
+.shadow-intent-filters { border-top: 0; }
+.shadow-intent-detail { padding: 0 13px 12px; }
+.shadow-intent-detail .risk-banner { margin: 8px 0; }
+
+/* B7.2 application shell: grouped navigation, status band, operational chips, control centre. */
+#primary-nav { overflow-y: auto; flex: 1 1 auto; min-height: 0; padding-bottom: 8px; }
+.nav-section { display: flex; flex-direction: column; gap: 1px; padding: 3px 0; }
+.nav-section + .nav-section { border-top: 1px solid var(--line-soft); }
+.nav-section.secondary { margin-top: 6px; }
+.nav-section-label { display: flex; align-items: center; gap: 12px; min-height: 30px; padding: 0 11px; color: var(--dim); font-size: 10px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
+.nav-section-label svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: 0 0 auto; }
+.nav-section.current .nav-section-label { color: var(--muted); }
+.nav-sub-link { min-height: 30px; padding-left: 39px; }
+.nav-sub-link span { font-size: 11.5px; }
+.status-band { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); border: 1px solid var(--line); background: var(--panel); }
+.status-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; padding: 9px 11px; border: 0; border-right: 1px solid var(--line-soft); background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.status-cell:last-child { border-right: 0; }
+.status-cell:hover, .status-cell:focus-visible { background: var(--panel-raised); }
+.status-cell-label { color: var(--dim); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
+.status-cell-detail { max-width: 100%; overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.status-band-foot { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 5px 2px 12px; color: var(--dim); font-size: 9px; }
+.ops-chip { display: inline-flex; align-items: center; padding: 2px 6px; border: 1px solid var(--line); color: var(--muted); font: 600 9px var(--mono); letter-spacing: .06em; white-space: nowrap; }
+.ops-chip.ok { color: var(--green); border-color: #2f6b4f; }
+.ops-chip.attention { color: var(--amber); border-color: #6b5a2f; }
+.ops-chip.bad, .ops-chip.bad-active { color: var(--red); border-color: #6b3438; }
+.ops-chip.active { color: var(--accent); border-color: #35536c; }
+html[data-theme="light"] .ops-chip.ok { border-color: #9fd2b8; }
+html[data-theme="light"] .ops-chip.attention { border-color: #e2cc9c; }
+html[data-theme="light"] .ops-chip.bad, html[data-theme="light"] .ops-chip.bad-active { border-color: #e7aeb2; }
+html[data-theme="light"] .ops-chip.active { border-color: #a9c6de; }
+.overview-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+.control-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+#readiness-panel, #service-panel { grid-column: 1 / -1; }
+.inactive-panel { margin-bottom: 12px; }
+.control-grid .inactive-panel { margin-bottom: 0; }
+.inactive-copy { padding: 11px 14px 13px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.notice-list { margin: 0; padding: 6px 14px 4px; list-style: none; }
+.notice-list li { display: flex; align-items: center; gap: 10px; min-height: 27px; border-bottom: 1px solid var(--line-soft); color: var(--muted); font-size: 10.5px; }
+.notice-list li:last-child { border-bottom: 0; }
+.restriction-list { margin: 0; padding: 10px 14px 12px 30px; color: var(--muted); font-size: 11px; line-height: 1.7; }
+.settings-readonly { color: var(--muted); font: 600 10px var(--mono); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+.muted { color: var(--dim); }
+.compact-table th, .compact-table td { padding-block: 5px; font-size: 10px; }
+@media (max-width: 1180px) {
+  /* Labels stay visible on tablets: the grouped navigation needs them (sub-items have no icon). */
+  .app-shell { grid-template-columns: 206px minmax(0, 1fr); }
+  .brand { justify-content: flex-start; padding: 0 18px; }
+  .brand > span:last-child, .nav-link span, .sidebar-version, .terminal-state > span:last-child { display: inline; }
+  .workspace-label { display: block; }
+  .nav-link { justify-content: flex-start; padding: 0 11px; }
+  .nav-sub-link { padding-left: 39px; }
+  .sidebar-bottom { display: block; padding: 15px 18px; }
+  .status-band { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .status-cell { border-bottom: 1px solid var(--line-soft); }
+  .status-cell:nth-child(4n) { border-right: 0; }
+}
+@media (max-width: 900px) {
+  .overview-cards, .control-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 650px) {
+  .sidebar { overflow-y: auto; }
+  .status-band { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .status-cell:nth-child(4n) { border-right: 1px solid var(--line-soft); }
+  .status-cell:nth-child(2n) { border-right: 0; }
+  .notice-list li { align-items: flex-start; flex-direction: column; gap: 4px; padding: 6px 0; }
+}
+@media (max-width: 1000px) {
+  /* With the labelled sidebar the watchlist column would be narrower than its table. */
+  .overview-grid { grid-template-columns: minmax(0, 1fr); }
+}
+.watchlist-panel { overflow-x: auto; }

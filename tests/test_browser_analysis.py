@@ -582,8 +582,9 @@ def test_analysis_updates_never_touch_the_chart(page, served) -> None:
     page.evaluate(
         "stopLivePolling();"  # no bars/quotes refresh can repaint during the check
         " document.querySelector('#price-chart').__marker = 'kept';"
-        " window.__draws = 0; const realDraw = drawChart;"
-        " drawChart = function () { window.__draws += 1; return realDraw.apply(this, arguments); };"
+        # B7.2: drawChart is a module function (cannot be wrapped from the page); count its
+        # calls through its own counter instead -- same assertion, every call counted.
+        " window.__draws0 = state.drawChartCalls;"
     )
     before = page.evaluate(
         "JSON.stringify([chartViewState(), state.view, state.chartDraws, state.bars.bars.length,"
@@ -599,7 +600,7 @@ def test_analysis_updates_never_touch_the_chart(page, served) -> None:
         " document.querySelector('#chart-status').textContent])"
     )
     assert after == before
-    assert page.evaluate("window.__draws") == 0
+    assert page.evaluate("state.drawChartCalls - window.__draws0") == 0
     assert page.evaluate("document.querySelector('#price-chart').__marker") == "kept"
     assert page.evaluate("state.analysis.result.decision.rule") == "R6"
     assert "You are viewing older candles on the chart" in _panel_text(page)
