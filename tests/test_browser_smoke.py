@@ -41,18 +41,20 @@ pytestmark = [
     pytest.mark.browser,
     pytest.mark.skipif(BROWSER is None, reason="no Chromium-family browser installed"),
 ]
+# B7.2 navigation: eight sections; every page keeps its id and appears in #primary-nav.
 NAV = {
     "overview": "Overview",
     "charts": "Charts",
-    "markets": "Markets",
+    "markets": "Watchlist",
     "calendar": "Economic Calendar",
-    "news": "News",
-    "signals": "Trading Signals",
-    "rules": "Trading Rules",
     "risk": "Risk Management",
-    "positions": "Positions",
-    "history": "Trade History",
-    "analytics": "Analytics",
+    "signals": "Decisions",
+    "analytics": "Shadow Research",
+    "history": "Trade Journal",
+    "positions": "Positions & Reconciliation",
+    "account": "Account & Broker",
+    "evidence": "Evidence & Costs",
+    "control": "System Control Centre",
     "settings": "Settings",
 }
 
@@ -226,6 +228,8 @@ def test_overview_shows_live_mt5_quotes_and_candles(page, tmp_path) -> None:
         assert "UNAVAILABLE" in _watch_row(page, "GBPUSD")  # not offered by the fake broker
         info = page.evaluate(_text("#market-info"))
         assert "Exness-MT5Trial9" in info and "Verified against a live tick" in info
+        # the readiness notices are part of the page: read the text only once they are shown
+        page.wait_for("document.querySelector('[data-notice=\"execution_disabled\"]') !== null")
         overview = page.evaluate(_text("main"))
         assert "Synthetic Smoke Event" in overview
         assert "Analysis & setups" in overview
@@ -829,10 +833,17 @@ def test_starting_twice_adds_no_timers_or_listeners_and_stop_ends_polling(page, 
         bars = _Calls(app.live_market, "bars")
         _load(page, url)
         page.wait_for(f"({_top_js('Market data')}).startsWith('Market data LIVE')")
-        page.evaluate("startLivePolling(); startLivePolling(); startLivePolling()")
+        # Baseline and repeat count are read in one synchronous script, so no poller can
+        # finish or start a request in between (an in-flight poller holds no timer).
+        baseline, repeated = page.evaluate(
+            "(() => { const before = livePollingState().timers;"
+            " startLivePolling(); startLivePolling(); startLivePolling();"
+            " return [before, livePollingState().timers]; })()"
+        )
         assert _listener_count(page, "document", "visibilitychange") == 1
         assert _listener_count(page, "window", "pagehide") == 1
-        assert page.evaluate("livePollingState().timers") <= 4  # quotes, bars, snapshot, expiry
+        assert baseline >= 1  # polling really is running after the initial start
+        assert repeated == baseline  # repeated starts add no timers
         page.evaluate("stopLivePolling()")
         stopped_at = time.monotonic() + 0.5
         state = page.evaluate("livePollingState()")

@@ -52,14 +52,21 @@ Nothing retrieves data: the engine takes an already-built snapshot and its T4/T4
 
 **Observations required for convergence:**
 
-| Indicator | Updates needed | Total candles |
-|---|---|---|
-| EMA20 | 47 | 66 |
-| EMA50 | 116 | 165 |
-| EMA200 | 461 | **661** |
-| RSI14 | 63 | 78 |
-| ATR14 | 63 | 78 |
+| Indicator | Warm-up (first value) | Updates needed (seed weight < 1 %) | Total candles |
+|---|---|---|---|
+| EMA20 | 20 | 47 | **67** |
+| EMA50 | 50 | 116 | **166** |
+| EMA200 | 200 | 461 | **661** |
+| RSI14 | 15 | 63 | 78 |
+| ATR14 | 15 | 63 | 78 |
 | ADX14 | both stages must pass: directional-movement smoothing (78) and ADX smoothing (63 updates after index 27) | **91** |
+
+- **Total = warm-up + updates.** The EMA's first value is the SMA seed at candle `p`; each later
+  candle is one recursive update. The condition is strict (`< 1 %`), so EMA20 is not settled at
+  66 candles (`(19/21)^46 ≈ 1.001 %`) and is settled at 67 (`(19/21)^47 ≈ 0.906 %`); likewise
+  EMA50 at 165 / 166 and EMA200 at 660 / 661.
+- **Correction (T5.1):** this table originally gave 66 and 165 for EMA20 and EMA50. The
+  implementation always reported 67 and 166; only the report was wrong.
 
 **Statuses per component:**
 - `insufficient_history`: no value;
@@ -174,6 +181,11 @@ dependencies, and none was added), so verification uses two independent methods:
   Wilder averages rather than Wilder sums.
 - **Convergence constants:** checked against the analytical boundary, `(199/201)^460 > 1 % >
   (199/201)^461`.
+- **EMA convergence boundaries (T5.1):** for EMA20/50/200 at 66/67, 165/166 and 660/661
+  candles, the seed weight is measured from `ema_series` itself (seed of 1s, then 0s), and the
+  engine is run on validated windows to check `observations_required`, `converged`, `status`
+  and `trusted` on each side of the boundary. Equality with the tolerance is tested as not
+  converged.
 
 **Also covered:** edge cases (flat, zero true range, equal / positive-only / negative-only
 movement, zero average gain or loss), initialisation boundaries, insufficient history, all

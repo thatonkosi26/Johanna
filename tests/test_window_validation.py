@@ -14,6 +14,7 @@ import pytest
 from fake_mt5 import FakeMT5
 
 from johanna.adapters.mt5 import MetaTrader5Adapter
+from johanna.analysis.continuity import TIMEFRAME_SECONDS
 from johanna.analysis.snapshot import build_snapshot
 from johanna.analysis.window import (
     ACCEPTED,
@@ -57,11 +58,73 @@ def hourly(start: str, count: int, step: str = "H1") -> list[dict]:
     return [candle(first + timedelta(seconds=STEP[step] * i)) for i in range(count)]
 
 
-def snapshot(candles, *, timeframe="H1", rejected=(), tick_age=0.5, **overrides) -> dict:
-    """A T2 snapshot from a bars response; live unless the inputs say otherwise."""
+# E1 fixture migration: the snapshot tick must be consistent with the candles, as in a real T1
+# read (recency validation rejects history that ends before the tick's expected latest closed
+# slot). At BASE the default tick is 13:59:59.5, so the 13:00 H1 slot has not closed yet and a
+# window ending 12:00 (the T6 fixtures) is current; the tick is 30.5 s old (T2: verified).
+DEFAULT_TICK_AGE = 30.5
+
+
+def _fixture_times(candles, timeframe: str, tick_age: float) -> tuple[datetime, datetime]:
+    """(tick time, tick retrieval time) for a fixture snapshot.
+
+    BASE timing when the candles are current at BASE (their last closed candle is the slot
+    before the tick's slot, or the newest candle is forming in the tick's slot). Otherwise the
+    times follow the candles: the tick 0.5 s into the slot after the last closed candle (or into
+    the forming candle's slot), read ``tick_age`` seconds later. Closure labels then match T1.
+
+    A newest candle labelled ``clock_only`` is closed by the clock alone, so T1 requires the
+    tick before its close and the bars read at least the 60 s completion grace after it: the
+    tick is placed 30 s before the close and read at BASE (BASE timing: a stale tick) or 90 s
+    after the close (otherwise: a 120 s old tick, still verified by T2).
+    """
+    step = timedelta(seconds=TIMEFRAME_SECONDS.get(timeframe, 3600))
+    times = sorted(
+        moment
+        for moment in (
+            datetime.fromisoformat(c["t"].replace("Z", "+00:00"))
+            for c in candles
+            if isinstance(c.get("t"), str) and c["t"].endswith("Z")
+        )
+    )
+    base_tick = BASE - timedelta(seconds=tick_age)
+    if not times:
+        return base_tick, BASE
+    newest = next(c for c in candles if c.get("t") == iso(times[-1]))
+    current_slot = times[-1] if newest.get("closure") == "forming" else times[-1] + step
+    epoch = base_tick.timestamp()
+    seconds = step.total_seconds()
+    base_slot = datetime.fromtimestamp(epoch - epoch % seconds, tz=UTC)
+    if newest.get("closure") == "clock_only":
+        close = times[-1] + step
+        tick = close - timedelta(seconds=30)
+        return tick, BASE if current_slot == base_slot else close + timedelta(seconds=90)
+    if current_slot == base_slot:
+        return base_tick, BASE
+    tick = current_slot + timedelta(seconds=0.5)
+    return tick, tick + timedelta(seconds=tick_age)
+
+
+def snapshot(
+    candles,
+    *,
+    timeframe="H1",
+    rejected=(),
+    tick_age=DEFAULT_TICK_AGE,
+    tick_time=None,
+    read_at=None,
+    **overrides,
+) -> dict:
+    """A T2 snapshot from a bars response; live unless the inputs say otherwise.
+
+    ``tick_time`` / ``read_at`` set the snapshot tick time and the tick retrieval time
+    explicitly (bars are read 0.2 s later), e.g. for a T1-consistent ``clock_only`` candle."""
     invalid = sum(
         1 for c in candles if c.get("issues") and set(c["issues"]) - {"duplicate_timestamp"}
     )
+    tick_time_auto, read_auto = _fixture_times(candles, timeframe, tick_age)
+    tick_time = tick_time or tick_time_auto
+    read = read_at or read_auto
     payload = {
         "symbol": "EURUSD",
         "broker_symbol": "EURUSDc",
@@ -78,15 +141,15 @@ def snapshot(candles, *, timeframe="H1", rejected=(), tick_age=0.5, **overrides)
             "duplicates_rejected": len(rejected),
             "out_of_order": 0,
         },
-        "latest_tick_utc": iso(BASE - timedelta(seconds=tick_age)),
+        "latest_tick_utc": iso(tick_time),
         "tick": {
             "bid": 1.15,
             "ask": 1.1501,
-            "time_utc": iso(BASE - timedelta(seconds=tick_age)),
-            "retrieved_at_utc": iso(BASE),
+            "time_utc": iso(tick_time),
+            "retrieved_at_utc": iso(read),
         },
-        "retrieved_at_utc": iso(BASE + timedelta(seconds=0.2)),
-        "requested_at_utc": iso(BASE + timedelta(seconds=0.3)),
+        "retrieved_at_utc": iso(read + timedelta(seconds=0.2)),
+        "requested_at_utc": iso(read + timedelta(seconds=0.3)),
         "served_from_cache": False,
         "source": "mt5",
         "time_basis": "utc",
@@ -95,7 +158,7 @@ def snapshot(candles, *, timeframe="H1", rejected=(), tick_age=0.5, **overrides)
         "message": None,
     }
     payload.update(overrides)
-    return build_snapshot(payload, snapshot_id="snap-1", assembled_at=BASE + timedelta(seconds=0.5))
+    return build_snapshot(payload, snapshot_id="snap-1", assembled_at=read + timedelta(seconds=0.5))
 
 
 def codes(result, dimension=None) -> set[str]:
@@ -125,6 +188,7 @@ def test_clean_live_window_is_accepted_with_every_dimension_reported() -> None:
         "completeness",
         "snapshot",
         "session_candles",  # T4.1: the required seventh dimension
+        "recency",  # E1: the eighth dimension
     }
     assert all(d["status"] == "pass" for d in result["dimensions"].values())
     assert result["window"]["count"] == 20
@@ -374,7 +438,7 @@ def test_snapshot_states_carry_into_the_window() -> None:
 
 
 def test_stale_snapshot_is_rejected_when_re_evaluated_at_analysis_time() -> None:
-    snap = snapshot(hourly(WEEKDAY, 10))
+    snap = snapshot(hourly("2026-11-11T03:00:00", 10))  # E1: current at BASE
     fresh = validate_window(snap, required_count=10, analysed_at=BASE + timedelta(seconds=3))
     assert fresh["verdict"]["state"] == ACCEPTED
     stale = validate_window(snap, required_count=10, analysed_at=BASE + timedelta(seconds=30))
@@ -466,7 +530,10 @@ def test_unexplained_gaps_are_never_accepted() -> None:
     missing = validate_window(snapshot(bars), required_count=19, peers={"GBPUSD": full})
     assert "gap_symbol_missing" in codes(missing) and missing["verdict"]["state"] == REJECTED
     wide = validate_window(snapshot(bars), required_count=19, peers={"GBPUSD": holed})
-    assert wide["verdict"]["state"] == PROVISIONAL and codes(wide) == {"gap_market_wide_unverified"}
+    assert wide["verdict"]["state"] == PROVISIONAL and codes(wide) == {
+        "gap_market_wide_unverified",
+        "closed_history_gap_market_wide_unverified",
+    }
 
 
 # ---------------------------------------------------------------- Sunday D1

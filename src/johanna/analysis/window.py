@@ -12,9 +12,9 @@ below found a reason to doubt the window.
 
 Independent dimensions, each with its own status (``pass`` / ``provisional`` / ``fail``),
 reasons and evidence: ``price``, ``timestamps``, ``closure``, ``continuity``,
-``completeness``, ``snapshot`` and (T4.1) ``session_candles``. Verdict: any ``fail`` ->
-``rejected``; otherwise any ``provisional`` -> ``provisional``; otherwise ``accepted``.
-No scores.
+``completeness``, ``snapshot``, (T4.1) ``session_candles`` and (E1) ``recency``.
+Verdict: any ``fail`` -> ``rejected``; otherwise any ``provisional`` -> ``provisional``;
+otherwise ``accepted``. No scores.
 
 The window is the newest ``required_count + warmup_count`` closed candles; the newest candle
 is left out only when it is still forming (reported in ``excluded_candles``). A window is
@@ -34,10 +34,11 @@ from johanna.analysis.continuity import (
     UNKNOWN,
     analyse_continuity,
 )
+from johanna.analysis.recency import assess_recency
 from johanna.analysis.sessions import EXNESS_T0_PROVISIONAL, SessionConfig, closures_overlapping
 from johanna.analysis.snapshot import DEFAULT_LIMITS, SnapshotLimits, evaluate_snapshot
 
-WINDOW_VERSION = 1
+WINDOW_VERSION = 2  # E1: eighth dimension ``recency`` (stricter acceptance)
 ACCEPTED, PROVISIONAL, REJECTED = "accepted", "provisional", "rejected"
 PASS, PROVISIONAL_STATUS, FAIL = "pass", "provisional", "fail"
 
@@ -180,6 +181,7 @@ def validate_window(
     if isinstance(warmup_count, bool) or not isinstance(warmup_count, int) or warmup_count < 0:
         raise ValueError("warmup_count must be a non-negative integer")
     expected = required_count + warmup_count
+    excluded_opens = list(excluded_opens)  # used by T3 and by E1 recency
     timeframe = snapshot.get("timeframe")
     bars = snapshot.get("bars") if isinstance(snapshot.get("bars"), Mapping) else {}
     items = list(bars.get("items") or [])
@@ -583,6 +585,20 @@ def validate_window(
         },
     )
 
+    # ---- recency (E1): is the closed-candle history current and complete up to the expected
+    # latest closed slot? Reads T4's own selection and T3's gaps; changes neither.
+    recency_reasons, recency_summary = assess_recency(
+        snapshot,
+        canonical=canonical,
+        window_times=window_times,
+        timeframe=timeframe,
+        config=config,
+        limits=limits,
+        excluded_opens=excluded_opens,
+        t3_gaps=continuity["gaps"],
+    )
+    recency_dim = _dimension(recency_reasons, {"summary": recency_summary})
+
     dimensions = {
         "price": price_dim,
         "timestamps": timestamps_dim,
@@ -591,6 +607,7 @@ def validate_window(
         "completeness": completeness_dim,
         "snapshot": snapshot_dim,
         "session_candles": session_dim,
+        "recency": recency_dim,
     }
     return _result(
         snapshot,
@@ -603,6 +620,7 @@ def validate_window(
         dimensions,
         analysed_at,
         eligibility,
+        recency_summary,
     )
 
 
@@ -617,6 +635,7 @@ def _result(
     dimensions: dict[str, dict[str, Any]],
     analysed_at: datetime | None,
     eligibility: Any,
+    recency_summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     reasons = [
         {"dimension": name, **reason}
@@ -655,6 +674,8 @@ def _result(
             "proof of continuous feed coverage, of price correctness, or of trading readiness."
         ),
     }
+    if recency_summary is not None:
+        result["recency"] = recency_summary
     if timeframe == "D1":
         result["d1_convention"] = D1_CONVENTION
     return result

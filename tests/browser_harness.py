@@ -132,6 +132,17 @@ class _WebSocket:
             pass
 
 
+def _read_devtools_port(port_file: Path) -> int | None:
+    """The DevTools port from Chrome's ``DevToolsActivePort`` file, or ``None`` while the file
+    is missing, still locked by Chrome (``PermissionError`` on Windows) or not fully written."""
+    try:
+        text = port_file.read_text()
+    except (FileNotFoundError, PermissionError):
+        return None
+    first = text.split()[0] if text.split() else ""
+    return int(first) if first.isdigit() and int(first) > 0 else None
+
+
 class Browser:
     """One headless browser with one page, controlled synchronously over CDP."""
 
@@ -154,12 +165,18 @@ class Browser:
         )
         port_file = Path(self._profile) / "DevToolsActivePort"
         deadline = time.monotonic() + 30
-        while not port_file.is_file() or not port_file.read_text().strip():
+        # Chrome creates the file before it has finished writing it and, on Windows, may still
+        # hold it open exclusively: a locked or incomplete file counts as "not ready yet". The
+        # same 30 s deadline and 50 ms interval bound the wait; any other failure is raised.
+        port = None
+        while port is None:
+            port = _read_devtools_port(port_file)
+            if port is not None:
+                break
             if time.monotonic() > deadline or self._process.poll() is not None:
                 self.close()
                 raise RuntimeError("Browser did not expose a DevTools port")
             time.sleep(0.05)
-        port = int(port_file.read_text().split()[0])
         targets: list[dict[str, Any]] = []
         while not targets:
             with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/list", timeout=10) as r:

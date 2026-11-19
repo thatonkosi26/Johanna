@@ -30,6 +30,8 @@ Every bar carries ``complete``: ``False`` while the candle can still change (see
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import logging
 import math
 import multiprocessing
@@ -38,14 +40,16 @@ import os
 import threading
 import time
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from johanna.adapters.base import MT5AdapterError
 from johanna.adapters.mt5 import MetaTrader5Adapter, MT5TimeBaseError, ServerClock
+from johanna.analysis.closure import COMPLETION_GRACE, classify_closure, is_complete  # noqa: F401
 from johanna.analysis.snapshot import DEFAULT_LIMITS, SnapshotLimits, build_snapshot
 
 LOGGER = logging.getLogger("johanna.live_market")
@@ -65,9 +69,8 @@ TIMEFRAME_SECONDS = {
 # (the first request for a symbol also resolves and selects it). A 200-pair watchlist is
 # fetched in 8 sequential batches.
 QUOTE_BATCH = 25
-# A bar whose close has passed by less than this, with no later tick yet, is still treated
-# as forming: the system clock may lead the server by up to the time-base tolerance.
-COMPLETION_GRACE = timedelta(seconds=60)
+# COMPLETION_GRACE (imported above) is the single authoritative closure grace: a bar whose
+# close has passed by less than this, with no later tick yet, is still treated as forming.
 DEFAULT_TERMINAL_IMAGE = "terminal64.exe"
 # Failures that mean the live connection (and therefore the clock check) is not current.
 _CONNECTION_LOSS = frozenset(
@@ -85,6 +88,49 @@ _CONNECTION_LOSS = frozenset(
         "mt5_busy",
     }
 )
+
+# P6.1 background (shadow evaluation) reads -- docs/phase-5-architecture.md §7.2. A call made
+# inside ``background_reads()`` uses the existing workers, but is admitted only when the worker
+# is idle, nobody is waiting for it and it has been quiet for ``quiet_seconds``; otherwise it
+# is refused at once with ``BACKGROUND_DEFERRED`` (never queued, never waits). Background reads
+# never change the connection state, the server-clock check or the quote and bar caches that
+# the dashboard's freshness is judged by, and never fall back to cached or archived bars.
+BACKGROUND_DEFERRED = "background_deferred"
+BACKGROUND_QUIET_SECONDS = 0.75
+
+
+@dataclass
+class BackgroundReads:
+    """One background evaluation attempt's view of worker admission."""
+
+    quiet_seconds: float = BACKGROUND_QUIET_SECONDS
+    admitted: int = 0
+    deferrals: int = 0
+
+
+_BACKGROUND: contextvars.ContextVar[BackgroundReads | None] = contextvars.ContextVar(
+    "johanna_background_reads", default=None
+)
+
+
+@contextlib.contextmanager
+def background_reads(quiet_seconds: float = BACKGROUND_QUIET_SECONDS) -> Iterator[BackgroundReads]:
+    """Mark the MT5 reads made by this thread (and context) as background reads."""
+    reads = BackgroundReads(quiet_seconds)
+    token = _BACKGROUND.set(reads)
+    try:
+        yield reads
+    finally:
+        _BACKGROUND.reset(token)
+
+
+def in_background() -> bool:
+    return _BACKGROUND.get() is not None
+
+
+def _deferred(reads: BackgroundReads, why: str) -> MarketUnavailable:
+    reads.deferrals += 1
+    return MarketUnavailable(BACKGROUND_DEFERRED, f"Background read deferred: {why}.")
 
 
 class MarketUnavailable(Exception):
@@ -220,9 +266,7 @@ def bar_is_complete(close_utc: datetime, latest_tick_utc: datetime | None, now: 
     This errs toward "forming": e.g. Friday's D1 bar stays forming after the market closes
     until its 24 h have elapsed.
     """
-    if latest_tick_utc is not None and latest_tick_utc >= close_utc:
-        return True
-    return now >= close_utc + COMPLETION_GRACE
+    return is_complete(close_utc, latest_tick_utc, now)  # the shared T1 rule (analysis.closure)
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -438,13 +482,8 @@ class MT5Session:
                         )
                     )
                     continue
-                complete = bar_is_complete(close, latest_tick, now)
-                if not complete:
-                    closure = FORMING
-                elif latest_tick is not None and latest_tick >= close:
-                    closure = TICK_OBSERVED
-                else:
-                    closure = CLOCK_ONLY
+                closure = classify_closure(close, latest_tick, now)  # shared T1 rule
+                complete = closure != FORMING
                 bars.append(
                     _bar(row, close=close, complete=complete, closure=closure, issues=issues)
                 )
@@ -471,6 +510,136 @@ class MT5Session:
                 "source": "mt5",
                 "time_basis": "utc",
             }
+
+        return self._run(job)
+
+    def broker(self, pairs: Sequence[str]) -> dict[str, Any]:
+        """Raw account and instrument properties for Phase 3 (read-only; validated elsewhere).
+
+        Account first, then each symbol's specification and tick, then the server identity is
+        read again: the reads are sequential on one connection, not atomic, so each part
+        carries its own retrieval time and the caller can detect a server change mid-read.
+        """
+
+        def job(adapter: MetaTrader5Adapter) -> dict[str, Any]:
+            account = adapter.account_snapshot()
+            account_retrieved = self._clock()
+            symbols: dict[str, dict[str, Any]] = {}
+            for pair in pairs:
+                symbol = self._broker_symbol(adapter, pair)
+                if symbol is None:
+                    symbols[pair] = {"error": "symbol_not_offered"}
+                    continue
+                self._format(adapter, symbol)  # selects it into Market Watch if hidden
+                spec = adapter.symbol_snapshot(symbol)
+                tick = adapter.get_tick(symbol)
+                real = _is_real_tick(tick)
+                symbols[pair] = {
+                    "broker_symbol": symbol,
+                    "spec": spec,
+                    "tick": {
+                        "bid": tick.get("bid") if real else None,
+                        "ask": tick.get("ask") if real else None,
+                        "time_utc": tick.get("time_utc") if real else None,
+                    },
+                    "retrieved_at": self._clock(),
+                }
+            return {
+                **account,
+                "account_retrieved_at": account_retrieved,
+                "symbols": symbols,
+                "identity_after": adapter.server_identity(),
+            }
+
+        return self._run(job)
+
+    def exposure(self, day_start_utc: datetime) -> dict[str, Any]:
+        """Phase 4: open positions, pending orders and today's deals (read-only).
+
+        The risk to stop-loss of each position and pending order is computed here with MT5's
+        own profit calculator, on the same connection. ``None`` risk means no stop-loss.
+        """
+
+        def job(adapter: MetaTrader5Adapter) -> dict[str, Any]:
+            clock = adapter.server_clock
+            now = self._clock()
+            raw = adapter.exposure_snapshot(clock.from_utc(day_start_utc), clock.from_utc(now))
+            retrieved = self._clock()
+            for item in raw["positions"]:
+                side = {0: "buy", 1: "sell"}.get(item.get("type"))
+                item["side"] = side
+                item["risk_to_stop"] = _risk_to_stop(
+                    adapter,
+                    side,
+                    item.get("symbol"),
+                    item.get("volume"),
+                    item.get("price_open"),
+                    item.get("sl"),
+                )
+            for item in raw["orders"]:
+                code = item.get("type")
+                side = None
+                if isinstance(code, int) and 2 <= code <= 7:
+                    side = "buy" if code % 2 == 0 else "sell"
+                item["side"] = side
+                if code in (6, 7):  # BUY/SELL stop-limit: execution at the limit price
+                    item["risk_to_stop"] = _stop_limit_risk(adapter, side, item)
+                    continue
+                item["risk_to_stop"] = _risk_to_stop(
+                    adapter,
+                    side,
+                    item.get("symbol"),
+                    item.get("volume_current"),
+                    item.get("price_open"),
+                    item.get("sl"),
+                )
+            for deal in raw["deals"]:
+                seconds = deal.get("time")
+                deal["time_utc"] = clock.to_utc(float(seconds)) if seconds is not None else None
+            return {**raw, "day_start_utc": day_start_utc, "retrieved_at": retrieved}
+
+        return self._run(job)
+
+    def reconciliation(self, from_utc: datetime, to_utc: datetime) -> dict[str, Any]:
+        """P6.3: positions, orders and deals in [from_utc, to_utc] with broker identifiers
+        (read-only; converted to HMAC references by the caller before use)."""
+
+        def job(adapter: MetaTrader5Adapter) -> dict[str, Any]:
+            clock = adapter.server_clock
+            raw = adapter.reconciliation_snapshot(clock.from_utc(from_utc), clock.from_utc(to_utc))
+            retrieved = self._clock()
+            for group, key in (("positions", "time"), ("orders", "time_setup"), ("deals", "time")):
+                for item in raw[group]:
+                    seconds = item.get(key)
+                    item["time_utc"] = clock.to_utc(float(seconds)) if seconds is not None else None
+            return {
+                **raw,
+                "coverage_from_utc": from_utc,
+                "coverage_to_utc": to_utc,
+                "retrieved_at": retrieved,
+            }
+
+        return self._run(job)
+
+    def risk_calc(self, requests: Sequence[tuple]) -> list[dict[str, Any]]:
+        """Phase 4: MT5 calculator results for ``("profit", side, symbol, volume, open, close)``
+        and ``("margin", side, symbol, volume, price)`` requests. Per-request failures are
+        returned as ``{"error": ...}``; calculations only, nothing is sent to the server."""
+
+        def job(adapter: MetaTrader5Adapter) -> list[dict[str, Any]]:
+            results = []
+            for request in requests:
+                kind, args = request[0], request[1:]
+                try:
+                    if kind == "profit":
+                        results.append({"value": adapter.calc_profit(*args)})
+                    elif kind == "margin":
+                        results.append({"value": adapter.calc_margin(*args)})
+                    else:
+                        results.append({"error": f"unknown calculation {kind!r}"})
+                except (MT5AdapterError, ValueError, TypeError) as exc:
+                    results.append({"error": str(exc)})
+            return results
 
         return self._run(job)
 
@@ -548,6 +717,57 @@ class MT5Session:
         return self._formats[symbol]
 
 
+def _risk_to_stop(
+    adapter: MetaTrader5Adapter,
+    side: str | None,
+    symbol: Any,
+    volume: Any,
+    price_open: Any,
+    sl: Any,
+) -> dict[str, Any]:
+    """Money at risk from the open price to the stop-loss (MT5 calculator; read-only)."""
+    if side is None or not isinstance(symbol, str):
+        return {"status": "unverified", "reason": "unknown position or order type"}
+    if not sl:
+        return {"status": "unbounded", "reason": "no stop-loss set"}
+    try:
+        value = adapter.calc_profit(side, symbol, float(volume), float(price_open), float(sl))
+    except (MT5AdapterError, TypeError, ValueError) as exc:
+        return {"status": "unverified", "reason": str(exc)}
+    # A stop beyond the open price in the profitable direction locks in a gain: no risk.
+    return {"status": "verified", "amount": max(0.0, -value), "calculator_result": value}
+
+
+def _stop_limit_risk(adapter: MetaTrader5Adapter, side: str | None, item: dict) -> dict[str, Any]:
+    """F4: a stop-limit order is filled at its limit price (or better), never assumed at the
+    trigger. Risk is the larger of the two entry prices to the stop-loss; without a readable
+    limit price the exposure cannot be bounded -> unverified."""
+    trigger, limit = item.get("price_open"), item.get("price_stoplimit")
+    valid = [
+        p
+        for p in (trigger, limit)
+        if isinstance(p, int | float) and not isinstance(p, bool) and math.isfinite(p) and p > 0
+    ]
+    if len(valid) != 2:
+        return {"status": "unverified", "reason": "stop-limit trigger or limit price unreadable"}
+    results = [
+        _risk_to_stop(
+            adapter, side, item.get("symbol"), item.get("volume_current"), price, item.get("sl")
+        )
+        for price in (trigger, limit)
+    ]
+    for result in results:
+        if result["status"] != "verified":
+            return result  # unbounded (no stop-loss) or unverified
+    worst = max(results, key=lambda result: result["amount"])
+    return {
+        **worst,
+        "basis": "stop-limit: larger risk of the trigger and limit entry prices",
+        "risk_at_trigger": results[0]["amount"],
+        "risk_at_limit": results[1]["amount"],
+    }
+
+
 # ====================================================================== runners
 class ThreadSessionRunner:
     """Runs an ``MT5Session`` on one dedicated thread. For tests with an in-memory fake;
@@ -559,11 +779,23 @@ class ThreadSessionRunner:
         self._executor: ThreadPoolExecutor | None = None
         self._inflight: dict[tuple, Future] = {}
         self._job_started: float | None = None
+        self._last_finished = float("-inf")
         self._lock = threading.Lock()
 
     def run(self, op: str, args: tuple, timeout: float) -> Any:
         key = (op, *args)
+        background = _BACKGROUND.get()
         with self._lock:
+            if background is not None:
+                # Admitted only when idle, nothing in flight and quiet; never queued.
+                if self._job_started is not None or any(
+                    not f.done() for f in self._inflight.values()
+                ):
+                    raise _deferred(background, "the worker is busy")
+                if time.monotonic() - self._last_finished < background.quiet_seconds:
+                    raise _deferred(background, "the worker was used moments ago")
+                background.admitted += 1
+                key = ("background", *key)  # never joins a dashboard job's result
             started = self._job_started
             if started is not None and time.monotonic() - started > timeout:
                 raise MarketUnavailable(
@@ -573,7 +805,7 @@ class ThreadSessionRunner:
             if future is None or future.done():
                 if self._executor is None:
                     self._executor = ThreadPoolExecutor(1, thread_name_prefix="johanna-mt5")
-                future = self._executor.submit(self._call, op, args)
+                future = self._executor.submit(self._call, op, args, background is not None)
                 self._inflight[key] = future
         try:
             return future.result(timeout=timeout)
@@ -582,7 +814,7 @@ class ThreadSessionRunner:
                 "timeout", f"MT5 did not respond within {timeout:.0f} s"
             ) from None
 
-    def _call(self, op: str, args: tuple) -> Any:
+    def _call(self, op: str, args: tuple, background: bool = False) -> Any:
         with self._lock:
             self._job_started = time.monotonic()
         try:
@@ -592,6 +824,8 @@ class ThreadSessionRunner:
         finally:
             with self._lock:
                 self._job_started = None
+                if not background:  # the quiet window measures foreground activity only
+                    self._last_finished = time.monotonic()
 
     def close(self) -> None:
         executor, self._executor = self._executor, None
@@ -691,6 +925,10 @@ class ProcessSessionRunner:
         self._retry_at = 0.0
         self._last_failure: MarketUnavailable | None = None
         self.spawn_count = 0
+        # P6.1 admission: foreground callers waiting for the lock, and when it was last freed.
+        self._waiting = 0
+        self._waiting_lock = threading.Lock()
+        self._last_release = float("-inf")
 
     @property
     def pid(self) -> int | None:
@@ -701,9 +939,30 @@ class ProcessSessionRunner:
         """Seconds until the next worker start is allowed (0 when not backing off)."""
         return max(0.0, self._retry_at - self._monotonic()) if self._failures else 0.0
 
+    def _acquire(self, timeout: float) -> None:
+        background = _BACKGROUND.get()
+        if background is None:
+            with self._waiting_lock:
+                self._waiting += 1
+            try:
+                acquired = self._lock.acquire(timeout=timeout)
+            finally:
+                with self._waiting_lock:
+                    self._waiting -= 1
+            if not acquired:
+                raise MarketUnavailable("mt5_busy", "MT5 is still answering a previous request.")
+            return
+        # Background: never waits and never queues behind (or ahead of) a foreground request.
+        if self._waiting:
+            raise _deferred(background, "a foreground request is waiting")
+        if self._monotonic() - self._last_release < background.quiet_seconds:
+            raise _deferred(background, "the worker was used moments ago")
+        if not self._lock.acquire(blocking=False):
+            raise _deferred(background, "the worker is busy")
+        background.admitted += 1
+
     def run(self, op: str, args: tuple, timeout: float) -> Any:
-        if not self._lock.acquire(timeout=timeout):
-            raise MarketUnavailable("mt5_busy", "MT5 is still answering a previous request.")
+        self._acquire(timeout)
         try:
             self._refuse_during_backoff()
             try:
@@ -732,6 +991,8 @@ class ProcessSessionRunner:
                 ) from None
             self._failures, self._retry_at, self._last_failure = 0, 0.0, None
         finally:
+            if _BACKGROUND.get() is None:  # the quiet window measures foreground activity only
+                self._last_release = self._monotonic()
             self._lock.release()
         if reply[0] == "ok":
             return reply[1]
@@ -943,6 +1204,8 @@ class LiveMarketService:
                 self._last_verified = now
 
     def _request(self, runner: Any, op: str, args: tuple, timeout: float) -> Any:
+        if in_background():  # P6.1: no connection, clock-check or freshness state changes
+            return runner.run(op, args, timeout)["value"]
         try:
             payload = runner.run(op, args, timeout)
         except MarketUnavailable as exc:
@@ -1085,6 +1348,45 @@ class LiveMarketService:
                 return status
         return UNAVAILABLE
 
+    # -- account and broker (Phase 3)
+    def broker_read(self, pairs: Sequence[str]) -> dict[str, Any]:
+        """One read-only account + instrument read on the quotes worker's connection.
+
+        Returns ``{"identity": ..., "value": ...}`` (identity as read before the job) or raises
+        ``MarketUnavailable``. Not cached here; ``AccountIntelligenceService`` owns caching
+        and validation. Uses the existing worker, so no additional MT5 connection is opened
+        and calls never run concurrently with quotes.
+        """
+        return self._worker_read("broker", (tuple(dict.fromkeys(pairs)),))
+
+    def exposure_read(self, day_start_utc: datetime) -> dict[str, Any]:
+        """Phase 4: positions, pending orders and deals since ``day_start_utc`` (read-only)."""
+        return self._worker_read("exposure", (day_start_utc,))
+
+    def reconciliation_read(self, from_utc: datetime, to_utc: datetime) -> dict[str, Any]:
+        """P6.3: read-only reconciliation snapshot on the existing quotes worker."""
+        return self._worker_read("reconciliation", (from_utc, to_utc))
+
+    def risk_calculations(self, requests: Sequence[tuple]) -> dict[str, Any]:
+        """Phase 4: MT5 calculator results (``order_calc_profit``/``order_calc_margin``)."""
+        return self._worker_read("risk_calc", (tuple(requests),))
+
+    def _worker_read(self, op: str, args: tuple) -> dict[str, Any]:
+        """One read-only job on the quotes worker; ``{"identity", "value"}``."""
+        if in_background():  # P6.1: no connection-state changes
+            return self._quote_runner.run(op, args, self.request_timeout)
+        try:
+            payload = self._quote_runner.run(op, args, self.request_timeout)
+        except MarketUnavailable as exc:
+            with self._lock:
+                self._unavailable = exc
+            raise
+        with self._lock:
+            self._identity = payload["identity"]
+            self._unavailable = None
+            self._last_success = self._clock()
+        return payload
+
     # -- bars
     def bars(self, pair: str, timeframe: str, count: int = 300) -> dict[str, Any]:
         if timeframe not in TIMEFRAMES:
@@ -1096,6 +1398,11 @@ class LiveMarketService:
         if cached is not None and now - cached["fetched_at"] < self.bars_ttl:
             # Within the cache TTL: same MT5 observation, served again (never presented as new).
             return self._bars_payload(cached, LIVE, now, from_cache=True)
+        if in_background():
+            # P6.1: a fresh MT5 read only -- never stored in the dashboard's cache, never a
+            # CACHED or archived fallback (a failure or deferral is raised to the scheduler).
+            entry = self._request(self._bar_runner, "bars", key, self.bars_timeout)
+            return self._bars_payload(entry, LIVE, self._clock())
         try:
             entry = self._request(self._bar_runner, "bars", key, self.bars_timeout)
         except MarketUnavailable as exc:

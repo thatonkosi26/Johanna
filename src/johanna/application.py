@@ -5,26 +5,46 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import asdict
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from johanna.account_intelligence import AccountIntelligenceService
 from johanna.adapters.mt5 import ServerClock
+from johanna.backups import BackupManager, BackupPolicy
+from johanna.broker_monitoring import BrokerMonitoringService
 from johanna.collectors import CollectorConfig, run_configured_source
 from johanna.config import AppConfig, ConfigurationError
+from johanna.cost_policy import CostPolicyRegistry, cost_readiness, live_broker_terms
 from johanna.data_services import CalendarService, MarketDataService, iso_utc
+from johanna.decision_journal import LAST_CAPTURED_DECISION, CapturingAnalysis, DecisionJournal
 from johanna.domain.execution import DisabledExecutionService
 from johanna.domain.intelligence import UnimplementedIntelligenceService
 from johanna.domain.news import UnimplementedNewsService
 from johanna.domain.risk import UnimplementedRiskService
 from johanna.domain.rules import UnimplementedRulesService
 from johanna.domain.signals import UnimplementedSignalService
+from johanna.evidence import EvidenceRegistry
 from johanna.instance_lock import InstanceLock
+from johanna.journal_store import JournalStore
 from johanna.live_market import LiveMarketService
+from johanna.market_analysis import MarketAnalysisService
+from johanna.notifications import DashboardInboxAdapter, NotificationCenter
+from johanna.operations import ReadinessEvidence
 from johanna.persistence import PREFERENCE_DEFAULTS, ApplicationStore
+from johanna.risk_service import RiskService
 from johanna.services import ServiceManager
+from johanna.shadow_evaluation import ShadowEvaluationService
+from johanna.trade_links import TradeLinkService
+from johanna.trade_logbook import TradeLogbook
 
 LOGGER = logging.getLogger("johanna.application")
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
 Task = Any  # Callable[[threading.Event], None]; kept loose for test injection
 
 
@@ -72,18 +92,80 @@ class JohannaApplication:
             clock=clock,
         )
         integrations = config.integrations
-        self.live_market = live_market or LiveMarketService(
-            terminal_path=integrations.mt5_terminal_path,
-            server_clock=ServerClock(
-                integrations.mt5_server_time_zone, integrations.mt5_server_time_shift_hours
-            ),
-            cached_bars=self._archived_bars,
+        if live_market is None:
+            # One clock callable for live data and analysis: it stamps MT5 retrieval times and
+            # supplies the T6 evaluation time, so T2's snapshot age compares like with like.
+            live_clock = _utc_now
+            live_market = LiveMarketService(
+                terminal_path=integrations.mt5_terminal_path,
+                server_clock=ServerClock(
+                    integrations.mt5_server_time_zone, integrations.mt5_server_time_shift_hours
+                ),
+                cached_bars=self._archived_bars,
+                clock=live_clock,
+            )
+        else:
+            # An injected live service (tests) keeps its own clock; analysis uses that callable.
+            live_clock = live_market._clock
+        self.live_market = live_market
+        self.market_analysis = MarketAnalysisService(self.live_market, clock=live_clock)
+        # Phase 3: read-only account and broker specifications, separate from T5/T6.
+        self.account = AccountIntelligenceService(self.live_market, clock=live_clock)
+        # Phase 4: proposed trade parameters for manual review (read-only, no execution).
+        # Phase 5 (P5.1): separate fail-closed trading journal; request-time decision capture.
+        self.journal_store = JournalStore(data_dir, clock=live_clock)
+        self.decisions = DecisionJournal(self.journal_store, clock=live_clock)
+        # P5.2: manual records of trades the user executed in MT5 (never places orders).
+        self.trades = TradeLogbook(self.journal_store, self.account, clock=live_clock)
+        self.risk = RiskService(
+            CapturingAnalysis(self.market_analysis, self.decisions),
+            self.account,
+            self.live_market,
+            clock=live_clock,
         )
+        # P6.1: background shadow evaluation (read-only; disabled until the user enables it).
+        # Kept outside the ServiceManager: started after it and stopped before it.
+        self.shadow = ShadowEvaluationService(
+            self.journal_store,
+            self.decisions,
+            self.market_analysis,
+            self.risk,
+            self.live_market.server_clock,
+            clock=live_clock,
+        )
+        # P6.2b.2: cost-evidence registry (staged schema v5; reports not_installed on v4). It
+        # is diagnostic only: the risk service keeps the production COST_TERMS (empty).
+        self._live_clock = live_clock or _utc_now
+        self.cost_registry = CostPolicyRegistry(self.journal_store, clock=self._live_clock)
+        # P6.3: read-only broker monitoring/reconciliation infrastructure. Never started here:
+        # no thread, no schedule; observe() is explicit (future separately approved activation).
+        self.monitoring = BrokerMonitoringService(
+            self.journal_store, self.live_market, clock=self._live_clock
+        )
+        # P6.4: local notification infrastructure. Local dashboard inbox only (no external
+        # delivery) and nothing calls notify() automatically in this phase.
+        self.notifications = NotificationCenter(
+            self.journal_store, (DashboardInboxAdapter(),), clock=self._live_clock
+        )
+        # P6.2b.4 (inactive foundations; schema v6 tables, registered in P6.2b.5, report
+        # not_installed on a journal still at v5):
+        # user-confirmed trade links (M-9; the confirmation endpoint answers not_activated),
+        # evidence records (C-12; nothing recorded automatically), explicit-only journal
+        # backups (M-7; policy disabled, no schedule) and reusable readiness evidence (M-8).
+        self.trade_links = TradeLinkService(self.journal_store, clock=self._live_clock)
+        self.evidence = EvidenceRegistry(self.journal_store, clock=self._live_clock)
+        self.backups = BackupManager(self.journal_store, BackupPolicy(enabled=False))
+        self.readiness_evidence = ReadinessEvidence()
         if services is not None:
             configured_services = [self.store, *services.services]
         else:
             configured_services = _services(
-                config, self.store, self.market_data, self.calendar, self.live_market
+                config,
+                self.store,
+                self.market_data,
+                self.calendar,
+                self.live_market,
+                self.journal_store,
             )
         self.services = ServiceManager(configured_services)
         self._started = False
@@ -108,6 +190,7 @@ class JohannaApplication:
                     self.cached_data = self.store.get_all_cached_data()
                     self.runtime_state = self.store.get_runtime_state()
                     self._started = True
+                    self.shadow.start()  # never raises; resumes only if enabled
                 except Exception:
                     self.services.stop()
                     raise
@@ -120,7 +203,10 @@ class JohannaApplication:
             if not self._started:
                 return
             try:
-                self.services.stop()
+                try:
+                    self.shadow.stop()
+                finally:
+                    self.services.stop()
             finally:
                 self._started = False
                 self.instance_lock.release()
@@ -182,6 +268,35 @@ class JohannaApplication:
         """Archived Parquet bars for the CACHED fallback when MT5 is unavailable."""
         rows, error = self.market_data.read_bars()
         return [r for r in rows if r["symbol"] == pair and r["timeframe"] == timeframe], error
+
+    # -- Phase 5 decision journal (request-time capture; failures never affect responses) --
+    def capture_analysis(self, envelope: object) -> None:
+        self.decisions.capture_analysis(envelope, "analysis_request")
+
+    def risk_proposal(self, symbol: str, timeframe: str) -> dict[str, Any]:
+        """Phase 4 proposal, unchanged; afterwards its risk assessment is journaled against
+        the decision captured by the analysis made inside this same request."""
+        token = LAST_CAPTURED_DECISION.set(None)
+        try:
+            result = self.risk.proposal(symbol, timeframe)
+            self.decisions.capture_risk(result, LAST_CAPTURED_DECISION.get())
+        finally:
+            LAST_CAPTURED_DECISION.reset(token)
+        return result
+
+    def cost_readiness(self) -> dict[str, Any]:
+        """P6.2b.2: why costs are (un)verified -- read-only (Phase 3 instrument read through
+        the shared cache; no journal write, no approval)."""
+        payload = self.account.instruments()
+        live = live_broker_terms(payload) if payload.get("instruments") else {}
+        registry = (
+            self.cost_registry.history(live)
+            if self.journal_store.ready
+            else {"status": "journal_unavailable", "records": []}
+        )
+        report = cost_readiness(self.risk.costs, self._live_clock(), payload, registry=registry)
+        report["instrument_data_status"] = payload.get("status")
+        return report
 
     def health(self) -> tuple[bool, dict[str, object]]:
         """Healthy only when running, persistence is up and no service is in error."""
@@ -366,10 +481,12 @@ def _services(
     market_data: MarketDataService,
     calendar: CalendarService,
     live_market: LiveMarketService,
+    journal_store: JournalStore,
 ) -> list[Any]:
     integrations = config.integrations
     return [
         store,
+        journal_store,  # never raises on start: a refused journal leaves the rest running
         live_market,
         market_data,
         calendar,

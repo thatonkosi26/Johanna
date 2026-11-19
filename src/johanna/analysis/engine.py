@@ -126,8 +126,15 @@ def analyse_window(
     *,
     analysed_at_utc: str | None = None,
     parameters: AnalysisParameters = DEFAULT_PARAMETERS,
+    include_series: bool = False,
 ) -> dict[str, Any]:
-    """Analyse the validated window of ``snapshot`` (see module docstring)."""
+    """Analyse the validated window of ``snapshot`` (see module docstring).
+
+    ``include_series`` (default off: the output is then exactly as before) also keeps, on each
+    EMA summary, the full series this function already computes, as ``series`` =
+    ``[[t, value-or-None], ...]`` paired with the window's own open times (visualisation only;
+    no value is computed for it and nothing else changes).
+    """
     verdict = (validation.get("verdict") or {}) if isinstance(validation, Mapping) else {}
     state = verdict.get("state")
     output: dict[str, Any] = {
@@ -178,18 +185,20 @@ def analyse_window(
 
     emas = []
     for period in parameters.ema_periods:
-        emas.append(
-            _summary(
-                f"EMA{period}",
-                period,
-                ema_series(closes, period),
-                times,
-                period - 1,
-                2.0 / (period + 1),
-                tol,
-                SEED_NOTE,
-            )
+        series = ema_series(closes, period)
+        summary = _summary(
+            f"EMA{period}",
+            period,
+            series,
+            times,
+            period - 1,
+            2.0 / (period + 1),
+            tol,
+            SEED_NOTE,
         )
+        if include_series:
+            summary["series"] = [[t, v] for t, v in zip(times, series, strict=True)]
+        emas.append(summary)
     p_rsi = parameters.rsi_period
     rsi = _summary(
         f"RSI{p_rsi}", p_rsi, rsi_series(closes, p_rsi), times, p_rsi, 1.0 / p_rsi, tol, WILDER_NOTE
